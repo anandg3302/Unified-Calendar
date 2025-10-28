@@ -1,0 +1,19 @@
+# Ignore environment files
+# Node
+node_modules/
+dist/
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Build
+build/
+coverage/
+
+# IDE
+.vscode/
+.idea/
+
