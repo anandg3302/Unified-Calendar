@@ -48,7 +48,7 @@ class AppleAuthService {
   private readonly APPLE_CLIENT_ID: string;
 
   constructor() {
-    this.API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+    this.API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'https://unified-calendar-zflg.onrender.com';
     this.APPLE_CLIENT_ID = Constants.expoConfig?.extra?.EXPO_PUBLIC_APPLE_CLIENT_ID || process.env.EXPO_PUBLIC_APPLE_CLIENT_ID || '';
   }
 

@@ -64,7 +64,7 @@ class AppleCalendarService {
   private readonly API_BASE_URL: string;
 
   constructor() {
-    this.API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8000';
+    this.API_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'https://unified-calendar-zflg.onrender.com';
   }
 
   /**

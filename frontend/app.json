@@ -12,7 +12,7 @@
       "appVersionSource": "remote"
     },
     "extra": {
-      "EXPO_PUBLIC_BACKEND_URL":"https://unified-calendar-backend-1.onrender.com",
+      "EXPO_PUBLIC_BACKEND_URL": "https://unified-calendar-zflg.onrender.com",
       "router": {},
       "eas": {
         "projectId": "69762b7c-f38e-451c-9980-dba308664368"

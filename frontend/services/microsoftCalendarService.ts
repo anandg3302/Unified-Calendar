@@ -9,7 +9,7 @@ import axios from 'axios';
 
 const API_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || 
                 process.env.EXPO_PUBLIC_BACKEND_URL || 
-                'http://10.180.141.59:8000';
+                'https://unified-calendar-zflg.onrender.com';
 
 export interface MicrosoftEvent {
   id: string;

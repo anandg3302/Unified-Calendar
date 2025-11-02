@@ -9,7 +9,7 @@ import Constants from 'expo-constants';
 const API_URL =
   Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL ||
   process.env.EXPO_PUBLIC_BACKEND_URL ||
-  'http://10.180.141.59:8000'; // Fallback to your computer's IP
+  'https://unified-calendar-zflg.onrender.com';
 
 interface User {
   id: string;
