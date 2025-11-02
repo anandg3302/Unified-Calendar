@@ -1,23 +1,22 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-  ActivityIndicator
-} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, StyleSheet, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useCalendarStore } from '../stores/calendarStore';
 import { format } from 'date-fns';
-import { Ionicons } from '@expo/vector-icons';
-import CustomDateTimePicker from '../components/CustomDateTimePicker';
-import DatePicker from 'react-datepicker';
-import 'react-datepicker/dist/react-datepicker.css';
+import {
+  Provider as PaperProvider,
+  MD3LightTheme as DefaultTheme,
+  Text,
+  TextInput,
+  Card,
+  FAB,
+  HelperText,
+  Snackbar
+} from 'react-native-paper';
+import { DatePickerModal, TimePickerModal, registerTranslation, en } from 'react-native-paper-dates';
+
+registerTranslation('en', en);
 
 const CALENDAR_SOURCES = [
   { id: 'google', name: 'Google Calendar', color: '#4285F4' },
@@ -28,38 +27,45 @@ const CALENDAR_SOURCES = [
 export default function CreateEventScreen() {
   const router = useRouter();
   const { createEvent } = useCalendarStore();
-  
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [calendarSource, setCalendarSource] = useState('google');
-  const [startDate, setStartDate] = useState(new Date());
-  const [endDate, setEndDate] = useState(new Date(Date.now() + 60 * 60 * 1000)); // 1 hour later
-  const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
-  const [showStartPicker, setShowStartPicker] = useState(false);
-  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [calendarSource] = useState('google');
+
+  const [date, setDate] = useState<Date>(new Date());
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(new Date(Date.now() + 60 * 60 * 1000));
+
+  const [openDate, setOpenDate] = useState(false);
+  const [openStartTime, setOpenStartTime] = useState(false);
+  const [openEndTime, setOpenEndTime] = useState(false);
+
+  const [snackbar, setSnackbar] = useState<{ visible: boolean; message: string }>({ visible: false, message: '' });
   const [isLoading, setIsLoading] = useState(false);
 
-  // Cleanup effect to handle DateTimePicker state properly
-  React.useEffect(() => {
-    return () => {
-      // Clean up picker states when component unmounts
-      setShowStartPicker(false);
-      setShowEndPicker(false);
-    };
-  }, []);
+  const theme = useMemo(() => ({
+    ...DefaultTheme,
+    colors: {
+      ...DefaultTheme.colors,
+      primary: '#6200EE'
+    },
+    roundness: 12
+  }), []);
+
+  const dateLabel = useMemo(() => format(date, 'EEE, dd MMM yyyy'), [date]);
+  const startTimeLabel = useMemo(() => format(startDate, 'h:mm aa'), [startDate]);
+  const endTimeLabel = useMemo(() => format(endDate, 'h:mm aa'), [endDate]);
 
   const handleCreate = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please enter an event title');
+      setSnackbar({ visible: true, message: 'Please enter an event title' });
       return;
     }
-
     if (endDate <= startDate) {
-      Alert.alert('Error', 'End time must be after start time');
+      setSnackbar({ visible: true, message: 'End time must be after start time' });
       return;
     }
-
     setIsLoading(true);
     try {
       await createEvent({
@@ -69,250 +75,179 @@ export default function CreateEventScreen() {
         calendar_source: calendarSource,
         start_time: startDate.toISOString(),
         end_time: endDate.toISOString(),
-        month: format(selectedMonth, 'yyyy-MM')
+        month: format(date, 'yyyy-MM')
       });
-      
-      Alert.alert('Success', 'Event created successfully');
+      setSnackbar({ visible: true, message: `Event created: ${title}` });
       router.back();
-    } catch (error) {
-      Alert.alert('Error', 'Failed to create event');
+    } catch (e) {
+      setSnackbar({ visible: true, message: 'Failed to create event' });
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoidingView}
-      >
-        <ScrollView 
-          style={styles.content}
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {/* Month (Month/Year) */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Month</Text>
-            {Platform.OS === 'web' ? (
-              <DatePicker
-                selected={selectedMonth}
-                onChange={(date: Date | null) => {
-                  if (!date) return;
-                  const normalized = new Date(date.getFullYear(), date.getMonth(), 1);
-                  setSelectedMonth(normalized);
-                }}
-                showMonthYearPicker
-                dateFormat="MM/yyyy"
+    <PaperProvider theme={theme}>
+      <SafeAreaView style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Card style={styles.card} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.sectionTitle}>Event Details</Text>
+              <TextInput
+                mode="outlined"
+                label="Event Title"
+                placeholder="Enter event title"
+                value={title}
+                onChangeText={setTitle}
+                disabled={isLoading}
+                style={styles.inputPaper}
               />
-            ) : (
-              <View style={[styles.dateButton, { justifyContent: 'space-between' }]}>
-                <Text style={styles.dateText}>{format(selectedMonth, 'MMM yyyy')}</Text>
-                <Ionicons name="chevron-down" size={18} color="#666" />
+              <HelperText type="info" visible={!title}>Title is required</HelperText>
+
+              <TextInput
+                mode="outlined"
+                label="Description"
+                placeholder="Add description"
+                value={description}
+                onChangeText={setDescription}
+                disabled={isLoading}
+                style={styles.inputPaper}
+                multiline
+                numberOfLines={4}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="Location"
+                placeholder="Add location"
+                value={location}
+                onChangeText={setLocation}
+                disabled={isLoading}
+                style={styles.inputPaper}
+              />
+            </Card.Content>
+          </Card>
+
+          <Card style={styles.card} mode="elevated">
+            <Card.Content>
+              <Text variant="titleMedium" style={styles.sectionTitle}>When</Text>
+              <TextInput
+                mode="outlined"
+                label="Date"
+                value={dateLabel}
+                editable={false}
+                right={<TextInput.Icon icon="calendar" onPress={() => setOpenDate(true)} />}
+                style={styles.inputPaper}
+              />
+              <View style={styles.row}>
+                <View style={styles.col}>
+                  <TextInput
+                    mode="outlined"
+                    label="Start Time"
+                    value={startTimeLabel}
+                    editable={false}
+                    right={<TextInput.Icon icon="clock" onPress={() => setOpenStartTime(true)} />}
+                    style={styles.inputPaper}
+                  />
+                </View>
+                <View style={styles.spacer} />
+                <View style={styles.col}>
+                  <TextInput
+                    mode="outlined"
+                    label="End Time"
+                    value={endTimeLabel}
+                    editable={false}
+                    right={<TextInput.Icon icon="clock-outline" onPress={() => setOpenEndTime(true)} />}
+                    style={styles.inputPaper}
+                  />
+                </View>
               </View>
-            )}
-          </View>
-
-          {/* Title */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Title *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Event title"
-              value={title}
-              onChangeText={setTitle}
-              editable={!isLoading}
-            />
-          </View>
-
-          {/* Calendar Source */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Calendar</Text>
-            <View style={styles.sourcesContainer}>
-              {CALENDAR_SOURCES.map(source => (
-                <TouchableOpacity
-                  key={source.id}
-                  style={[
-                    styles.sourceChip,
-                    calendarSource === source.id && {
-                      backgroundColor: source.color,
-                      borderColor: source.color
-                    }
-                  ]}
-                  onPress={() => setCalendarSource(source.id)}
-                  disabled={isLoading}
-                >
-                  <View 
-                    style={[
-                      styles.sourceDot, 
-                      { backgroundColor: source.color }
-                    ]} 
-                  />
-                  <Text style={[
-                    styles.sourceText,
-                    calendarSource === source.id && styles.sourceTextActive
-                  ]}>
-                    {source.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Start Time */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Start Time</Text>
-            {Platform.OS === 'web' ? (
-              <DatePicker
-                selected={startDate}
-                onChange={(date: Date | null) => {
-                  if (!date) return;
-                  setStartDate(date);
-                  if (date >= endDate) {
-                    setEndDate(new Date(date.getTime() + 60 * 60 * 1000));
-                  }
-                }}
-                showMonthDropdown
-                showYearDropdown
-                showTimeSelect
-                timeIntervals={15}
-                dateFormat="dd/MM/yyyy h:mm aa"
-              />
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={() => setShowStartPicker(true)}
-                  disabled={isLoading}
-                >
-                  <Ionicons name="calendar-outline" size={20} color="#666" />
-                  <Text style={styles.dateText}>
-                    {format(startDate, 'MMM d, yyyy HH:mm')}
-                  </Text>
-                </TouchableOpacity>
-                {showStartPicker && (
-                  <CustomDateTimePicker
-                    testID="startDatePicker"
-                    value={startDate}
-                    mode="datetime"
-                    is24Hour={true}
-                    onChange={(event, selectedDate) => {
-                      setShowStartPicker(false);
-                      if (event.type === 'set' && selectedDate) {
-                        setStartDate(selectedDate);
-                        if (selectedDate >= endDate) {
-                          setEndDate(new Date(selectedDate.getTime() + 60 * 60 * 1000));
-                        }
-                      }
-                    }}
-                  />
-                )}
-              </>
-            )}
-
-          </View>
-
-          {/* End Time */}
-          <View style={styles.field}>
-            <Text style={styles.label}>End Time</Text>
-            {Platform.OS === 'web' ? (
-              <DatePicker
-                selected={endDate}
-                onChange={(date: Date | null) => {
-                  if (!date) return;
-                  setEndDate(date);
-                }}
-                showMonthDropdown
-                showYearDropdown
-                showTimeSelect
-                timeIntervals={15}
-                minDate={startDate}
-                dateFormat="dd/MM/yyyy h:mm aa"
-              />
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.dateButton}
-                  onPress={() => setShowEndPicker(true)}
-                  disabled={isLoading}
-                >
-                  <Ionicons name="calendar-outline" size={20} color="#666" />
-                  <Text style={styles.dateText}>
-                    {format(endDate, 'MMM d, yyyy HH:mm')}
-                  </Text>
-                </TouchableOpacity>
-                {showEndPicker && (
-                  <CustomDateTimePicker
-                    testID="endDatePicker"
-                    value={endDate}
-                    mode="datetime"
-                    is24Hour={true}
-                    minimumDate={startDate}
-                    onChange={(event, selectedDate) => {
-                      setShowEndPicker(false);
-                      if (event.type === 'set' && selectedDate) {
-                        setEndDate(selectedDate);
-                      }
-                    }}
-                  />
-                )}
-              </>
-            )}
-
-          </View>
-
-          {/* Location */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Location</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Add location"
-              value={location}
-              onChangeText={setLocation}
-              editable={!isLoading}
-            />
-          </View>
-
-          {/* Description */}
-          <View style={styles.field}>
-            <Text style={styles.label}>Description</Text>
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Add description"
-              value={description}
-              onChangeText={setDescription}
-              multiline
-              numberOfLines={4}
-              textAlignVertical="top"
-              editable={!isLoading}
-            />
-          </View>
+            </Card.Content>
+          </Card>
         </ScrollView>
-      </KeyboardAvoidingView>
 
-      {/* Action Buttons - Fixed at bottom */}
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.cancelButton]}
-          onPress={() => router.back()}
-          disabled={isLoading}
-        >
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.createButton]}
+        <FAB
+          icon="check"
+          label={isLoading ? 'Creating…' : 'Create Event'}
           onPress={handleCreate}
+          style={styles.fab}
+          mode="elevated"
+          color="#fff"
           disabled={isLoading}
+        />
+
+        <DatePickerModal
+          locale="en"
+          mode="single"
+          visible={openDate}
+          onDismiss={() => setOpenDate(false)}
+          date={date}
+          onConfirm={({ date: picked }) => {
+            if (!picked) return;
+            setOpenDate(false);
+            setDate(picked);
+            const nextStart = new Date(startDate);
+            nextStart.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+            const nextEnd = new Date(endDate);
+            nextEnd.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+            if (nextEnd <= nextStart) {
+              nextEnd.setTime(nextStart.getTime() + 60 * 60 * 1000);
+            }
+            setStartDate(nextStart);
+            setEndDate(nextEnd);
+          }}
+          presentationStyle="pageSheet"
+        />
+
+        <TimePickerModal
+          visible={openStartTime}
+          onDismiss={() => setOpenStartTime(false)}
+          onConfirm={({ hours, minutes }) => {
+            setOpenStartTime(false);
+            const nextStart = new Date(startDate);
+            nextStart.setHours(hours, minutes, 0, 0);
+            let nextEnd = new Date(endDate);
+            if (nextEnd <= nextStart) {
+              nextEnd = new Date(nextStart.getTime() + 60 * 60 * 1000);
+            }
+            setStartDate(nextStart);
+            setEndDate(nextEnd);
+          }}
+          hours={startDate.getHours()}
+          minutes={startDate.getMinutes()}
+          label="Start time"
+          locale="en"
+          use24HourClock={false}
+        />
+
+        <TimePickerModal
+          visible={openEndTime}
+          onDismiss={() => setOpenEndTime(false)}
+          onConfirm={({ hours, minutes }) => {
+            setOpenEndTime(false);
+            const nextEnd = new Date(endDate);
+            nextEnd.setHours(hours, minutes, 0, 0);
+            if (nextEnd <= startDate) {
+              nextEnd.setTime(startDate.getTime() + 5 * 60 * 1000);
+            }
+            setEndDate(nextEnd);
+          }}
+          hours={endDate.getHours()}
+          minutes={endDate.getMinutes()}
+          label="End time"
+          locale="en"
+          use24HourClock={false}
+        />
+
+        <Snackbar
+          visible={snackbar.visible}
+          onDismiss={() => setSnackbar({ visible: false, message: '' })}
+          duration={2500}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.createButtonText}>Create Event</Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    </View>
+          {snackbar.message}
+        </Snackbar>
+      </SafeAreaView>
+    </PaperProvider>
   );
 }
 
@@ -321,116 +256,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff'
   },
-  keyboardAvoidingView: {
-    flex: 1
-  },
-  content: {
-    flex: 1
-  },
   scrollContent: {
     padding: 16,
-    paddingBottom: 20
+    paddingBottom: 120
   },
-  field: {
-    marginBottom: 24
+  card: {
+    borderRadius: 12,
+    marginBottom: 16
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+  sectionTitle: {
     marginBottom: 8
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    color: '#333',
-    backgroundColor: '#f9f9f9'
+  inputPaper: {
+    marginTop: 8,
+    marginBottom: 8
   },
-  textArea: {
-    minHeight: 100
-  },
-  sourcesContainer: {
+  row: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8
-  },
-  sourceChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f9f9f9'
-  },
-  sourceDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6
-  },
-  sourceText: {
-    fontSize: 14,
-    color: '#666'
-  },
-  sourceTextActive: {
-    color: '#fff',
-    fontWeight: '600'
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    backgroundColor: '#f9f9f9'
-  },
-  dateText: {
-    fontSize: 16,
-    color: '#333',
-    marginLeft: 8
-  },
-  actions: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    backgroundColor: '#fff',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
     alignItems: 'center'
   },
-  cancelButton: {
-    backgroundColor: '#f0f0f0'
+  col: {
+    flex: 1
   },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#666'
+  spacer: {
+    width: 12
   },
-  createButton: {
-    backgroundColor: '#4285F4'
-  },
-  createButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff'
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24
   }
 });

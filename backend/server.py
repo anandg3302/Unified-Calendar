@@ -91,6 +91,9 @@ class EventUpdate(BaseModel):
     end_time: Optional[datetime] = None
     location: Optional[str] = None
 
+class InviteResponse(BaseModel):
+    status: str  # "accepted" or "declined"
+
 class CalendarSource(BaseModel):
     id: str
     name: str
@@ -183,13 +186,14 @@ def google_login():
                 "redirect_uris": [GOOGLE_REDIRECT_URI],
             }
         },
-        scopes=SCOPES,
+        scopes=SCOPES + ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
     )
+    flow.redirect_uri = GOOGLE_REDIRECT_URI
     auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
     return RedirectResponse(auth_url)
 
 @api_router.get("/google/callback")
-async def google_callback(request: Request, current_user: dict = Depends(get_current_user)):
+async def google_callback(request: Request):
     code = request.query_params.get("code")
     if not code:
         return JSONResponse({"error": "No code provided"}, status_code=400)
@@ -204,29 +208,52 @@ async def google_callback(request: Request, current_user: dict = Depends(get_cur
                 "redirect_uris": [GOOGLE_REDIRECT_URI],
             }
         },
-        scopes=SCOPES,
+        scopes=SCOPES + ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
     )
     flow.redirect_uri = GOOGLE_REDIRECT_URI
     flow.fetch_token(code=code)
     credentials = flow.credentials
 
-    # Save refresh_token to DB for the current user
-    await db.users.update_one(
-        {"_id": ObjectId(current_user["_id"])},
-        {"$set": {"google_refresh_token": credentials.refresh_token}}
-    )
+    # Get user info from Google
+    from google.oauth2.credentials import Credentials as GoogleCredentials
+    userinfo_service = build("oauth2", "v2", credentials=credentials)
+    user_info = userinfo_service.userinfo().get().execute()
+    email = user_info.get("email")
+    name = user_info.get("name", email.split("@")[0] if email else "User")
 
-    # Fetch Google Calendar events
-    service = build("calendar", "v3", credentials=credentials)
-    events_result = service.events().list(
-        calendarId="primary",
-        maxResults=20,
-        singleEvents=True,
-        orderBy="startTime"
-    ).execute()
-    events = events_result.get("items", [])
+    if not email:
+        return JSONResponse({"error": "Could not get email from Google"}, status_code=400)
 
-    return {"events": events}
+    # Find or create user
+    user = await db.users.find_one({"email": email})
+    if not user:
+        # Create new user
+        user_dict = {
+            "email": email,
+            "name": name,
+            "password_hash": None,  # Google users don't have passwords
+            "google_refresh_token": credentials.refresh_token,
+            "created_at": datetime.utcnow()
+        }
+        result = await db.users.insert_one(user_dict)
+        user_id = str(result.inserted_id)
+    else:
+        # Update existing user with Google token
+        await db.users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"google_refresh_token": credentials.refresh_token}}
+        )
+        user_id = str(user["_id"])
+
+    # Create JWT token
+    access_token = create_access_token(data={"sub": user_id})
+    
+    # Redirect to callback URL with token and user data as query params
+    from urllib.parse import urlencode
+    import json
+    user_data = {"id": user_id, "email": email, "name": name}
+    redirect_url = f"{GOOGLE_REDIRECT_URI}?{urlencode({'token': access_token, 'user': json.dumps(user_data)})}"
+    return RedirectResponse(redirect_url)
 
 # ───────────────────────────────────────────────
 # Auth routes
@@ -296,7 +323,55 @@ async def get_events(current_user: dict = Depends(get_current_user)):
             singleEvents=True,
             orderBy="startTime"
         ).execute()
-        google_events = events_result.get("items", [])
+        raw_google_events = events_result.get("items", [])
+        
+        # Normalize Google events to include invite information
+        for event in raw_google_events:
+            # Check if this is an invite (user is an attendee but not the organizer)
+            attendees = event.get("attendees", [])
+            organizer = event.get("organizer", {})
+            creator = event.get("creator", {})
+            
+            # Get user email from current_user if available
+            user_email = current_user.get("email")
+            
+            # Check if user is an attendee with pending response
+            is_invite = False
+            invite_status = None
+            
+            if attendees and user_email:
+                for attendee in attendees:
+                    if attendee.get("email") == user_email:
+                        response_status = attendee.get("responseStatus", "").lower()
+                        if response_status in ["needsaction", "tentative"]:
+                            is_invite = True
+                            invite_status = "pending"
+                        elif response_status == "accepted":
+                            is_invite = True
+                            invite_status = "accepted"
+                        elif response_status == "declined":
+                            is_invite = True
+                            invite_status = "declined"
+                        break
+            
+            # Also check if user is not the organizer (someone else invited them)
+            if not is_invite and organizer.get("email") != user_email and attendees:
+                # User is invited but hasn't responded yet
+                is_invite = True
+                invite_status = "pending"
+            
+            # Normalize start_time and end_time
+            start_time = event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
+            end_time = event.get("end", {}).get("dateTime") or event.get("end", {}).get("date")
+            
+            # Add normalized fields
+            event["calendar_source"] = "google"
+            event["is_invite"] = is_invite
+            event["invite_status"] = invite_status
+            event["start_time"] = start_time
+            event["end_time"] = end_time
+            
+            google_events.append(event)
 
     # Fetch Apple events if available
     apple_events = []
@@ -385,6 +460,51 @@ async def delete_event(event_id: str, current_user: dict = Depends(get_current_u
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Event not found")
     return {"message": "Event deleted"}
+
+# -------------------------------
+# PATCH /api/events/{event_id}/respond
+# -------------------------------
+@api_router.patch("/events/{event_id}/respond")
+async def respond_to_invite(event_id: str, response: InviteResponse, current_user: dict = Depends(get_current_user)):
+    """Respond to a calendar invite (accept or decline)"""
+    user_id = str(current_user["_id"])
+    
+    # Validate status
+    if response.status not in ["accepted", "declined"]:
+        raise HTTPException(status_code=400, detail="Status must be 'accepted' or 'declined'")
+    
+    # Find the event
+    event = await db.events.find_one({"_id": ObjectId(event_id), "user_id": user_id})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Check if it's an invite
+    if not event.get("is_invite"):
+        raise HTTPException(status_code=400, detail="This event is not an invite")
+    
+    # Update invite status
+    update_result = await db.events.update_one(
+        {"_id": ObjectId(event_id)},
+        {
+            "$set": {
+                "invite_status": response.status,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if update_result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Event not found")
+    
+    # Get updated event
+    updated_event = await db.events.find_one({"_id": ObjectId(event_id)})
+    if updated_event:
+        updated_event["id"] = str(updated_event["_id"])
+        updated_event["_id"] = str(updated_event["_id"])
+        if "user_id" in updated_event and isinstance(updated_event["user_id"], ObjectId):
+            updated_event["user_id"] = str(updated_event["user_id"])
+    
+    return updated_event
 # ───────────────────────────────────────────────
 # Include Routers + Middleware
 app.include_router(api_router)

@@ -26,6 +26,7 @@ export default function EventDetailsScreen() {
   const [isLoading, setIsLoading] = useState(false);
   
   const event = events.find(e => e.id === id);
+  const isNewlyAccepted = event?.is_invite && event?.invite_status === 'accepted';
 
   if (!event) {
     return (
@@ -79,8 +80,17 @@ export default function EventDetailsScreen() {
   const calendarColor = CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS];
 
   return (
-    <View style={styles.container}>
+    <View style={[
+      styles.container,
+      isNewlyAccepted && styles.newlyAcceptedContainer
+    ]}>
       <ScrollView style={styles.content}>
+        {isNewlyAccepted && (
+          <View style={styles.newBadge}>
+            <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
+            <Text style={styles.newBadgeText}>Newly Accepted Invite</Text>
+          </View>
+        )}
         {/* Event Header */}
         <View style={[styles.header, { backgroundColor: calendarColor + '20' }]}>
           <View style={[styles.colorBar, { backgroundColor: calendarColor }]} />
@@ -345,5 +355,25 @@ const styles = StyleSheet.create({
     marginTop: 32,
     fontSize: 16,
     color: '#999'
+  },
+  newlyAcceptedContainer: {
+    backgroundColor: '#f1f8f4'
+  },
+  newBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4CAF50',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 12,
+    gap: 8
+  },
+  newBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700'
   }
 });

@@ -88,6 +88,8 @@ interface CalendarState {
   selectedDate: Date;
   isLoading: boolean;
   appleConnected: boolean;
+  pollingInterval: NodeJS.Timeout | null;
+  isPolling: boolean;
   fetchEvents: () => Promise<void>;
   fetchCalendarSources: () => Promise<void>;
   toggleSource: (sourceId: string) => void;
@@ -97,6 +99,8 @@ interface CalendarState {
   updateEvent: (eventId: string, eventData: any) => Promise<void>;
   deleteEvent: (eventId: string) => Promise<void>;
   respondToInvite: (eventId: string, status: string) => Promise<void>;
+  startPolling: (intervalSeconds?: number) => void;
+  stopPolling: () => void;
   // Apple Calendar methods
   connectAppleCalendar: (credentials: {appleId: string, appSpecificPassword: string}) => Promise<boolean>;
   syncAppleEvents: () => Promise<void>;
@@ -113,6 +117,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   selectedDate: new Date(),
   isLoading: false,
   appleConnected: false,
+  pollingInterval: null,
+  isPolling: false,
 
   fetchEvents: async () => {
     try {
@@ -349,6 +355,51 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     } catch (error) {
       console.error('Error deleting Apple event:', error);
       throw error;
+    }
+  },
+
+  startPolling: (intervalSeconds: number = 30) => {
+    const { pollingInterval, isPolling } = get();
+    
+    // Don't start if already polling
+    if (isPolling && pollingInterval) {
+      console.log('Polling already active');
+      return;
+    }
+
+    // Clear existing interval if any
+    if (pollingInterval) {
+      clearInterval(pollingInterval);
+    }
+
+    console.log(`Starting event polling every ${intervalSeconds} seconds`);
+    
+    // Start polling
+    const interval = setInterval(async () => {
+      try {
+        console.log('Polling for event updates...');
+        await get().fetchEvents();
+      } catch (error) {
+        console.error('Error during polling:', error);
+      }
+    }, intervalSeconds * 1000);
+
+    set({ 
+      pollingInterval: interval as any,
+      isPolling: true 
+    });
+  },
+
+  stopPolling: () => {
+    const { pollingInterval } = get();
+    
+    if (pollingInterval) {
+      console.log('Stopping event polling');
+      clearInterval(pollingInterval);
+      set({ 
+        pollingInterval: null, 
+        isPolling: false 
+      });
     }
   }
 }));

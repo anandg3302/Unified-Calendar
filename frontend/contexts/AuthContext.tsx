@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 
@@ -116,12 +117,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login using Google OAuth
   const loginWithGoogle = async () => {
     try {
-      const url = `${API_URL}/api/google/login`;
-      const supported = await Linking.canOpenURL(url);
-      if (!supported) throw new Error('Cannot open Google login URL');
+      const loginUrl = `${API_URL}/api/google/login`;
+      
+      // Open OAuth flow in browser
+      const result = await WebBrowser.openAuthSessionAsync(
+        loginUrl,
+        `${API_URL}/api/google/callback`
+      );
 
-      await Linking.openURL(url);
-      // Deep link listener will handle token & user automatically
+      if (result.type === 'success' && result.url) {
+        // Parse the callback URL to extract token and user
+        const url = new URL(result.url);
+        const token = url.searchParams.get('token');
+        const userStr = url.searchParams.get('user');
+        
+        // If params are in the URL, use them
+        if (token && userStr) {
+          const userData = JSON.parse(decodeURIComponent(userStr));
+          await AsyncStorage.setItem('auth_token', token);
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+          setToken(token);
+          setUser(userData);
+          return;
+        }
+        
+        // Otherwise, make a direct request to callback to get JSON response
+        try {
+          const response = await axios.get(`${API_URL}/api/google/callback${url.search}`);
+          const { access_token, user: userData } = response.data;
+          await AsyncStorage.setItem('auth_token', access_token);
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+          setToken(access_token);
+          setUser(userData);
+        } catch (callbackError: any) {
+          // If callback fails, try to get token from URL hash or query params
+          throw new Error(callbackError.response?.data?.error || 'Failed to complete Google login');
+        }
+      } else if (result.type === 'cancel') {
+        throw new Error('Google login cancelled');
+      } else {
+        throw new Error('Google login failed');
+      }
     } catch (error: any) {
       throw new Error(error.message || 'Google login failed');
     }

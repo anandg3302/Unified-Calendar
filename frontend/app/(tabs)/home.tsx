@@ -10,10 +10,11 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Calendar as MiniCalendar } from 'react-native-calendars';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useCalendarStore } from '../../stores/calendarStore';
+import { useTaskStore } from '../../stores/taskStore';
 
 type EventItem = {
   id: string;
@@ -42,78 +43,43 @@ const CARD_BG = '#1E1E1E';
 export default function HomeScreen() {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [marked, setMarked] = useState<Record<string, any>>({});
-
-  const backendUrl =
-    (process.env.EXPO_PUBLIC_BACKEND_URL as string) || 'http://localhost:8000';
+  const { events, isLoading, fetchEvents, startPolling, stopPolling } = useCalendarStore();
+  const { tasks, load: loadTasks } = useTaskStore();
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchEvents() {
-      setIsLoading(true);
-      try {
-        const res = await fetch(`${backendUrl}/api/events`);
-        const data = await res.json();
-        if (cancelled) return;
-
-        const list: EventItem[] = Array.isArray(data)
-          ? data
-          : [
-              ...(data?.local_events || []),
-              ...(data?.google_events || []),
-              ...(data?.apple_events || []),
-              ...(data?.microsoft_events || []),
-            ];
-
-        setEvents(list.slice(0, 10));
-
-        // Mark dates on calendar
-        const marks: Record<string, any> = {};
-        list.forEach((e) => {
-          const d = new Date(e.start_time).toISOString().slice(0, 10);
-          marks[d] = { marked: true, dotColor: GOLD };
-        });
-
-        const today = new Date().toISOString().slice(0, 10);
-        marks[today] = {
-          ...(marks[today] || {}),
-          selected: true,
-          selectedColor: GOLD,
-          selectedTextColor: '#000',
-        };
-        setMarked(marks);
-      } catch (error) {
-        console.warn('Error fetching events:', error);
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-
     fetchEvents();
+    loadTasks();
+    // Start automatic polling for real-time updates (every 30 seconds)
+    startPolling(30);
+    
+    // Cleanup: stop polling when component unmounts
     return () => {
-      cancelled = true;
+      stopPolling();
     };
-  }, [backendUrl]);
+  }, [fetchEvents, loadTasks, startPolling, stopPolling]);
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return events;
+  const filteredEvents = useMemo(() => {
+    if (!query.trim()) return events.slice(0, 20);
     const q = query.trim().toLowerCase();
     return events.filter(
       (e) =>
         e.title?.toLowerCase().includes(q) ||
         e.description?.toLowerCase().includes(q) ||
         e.location?.toLowerCase().includes(q)
-    );
+    ).slice(0, 20);
   }, [events, query]);
+
+  const filteredTasks = useMemo(() => {
+    if (!query.trim()) return tasks.slice(0, 20);
+    const q = query.trim().toLowerCase();
+    return tasks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, 20);
+  }, [tasks, query]);
 
   const onAdd = async () => {
     if (Platform.OS !== 'web') {
       try {
         await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      } catch {}
+      } catch { }
     }
     router.push('/create-event');
   };
@@ -200,48 +166,35 @@ export default function HomeScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 16 }}
-          data={filtered}
+          data={filteredEvents}
           keyExtractor={(i) => i.id}
           renderItem={renderEventCard}
         />
       )}
 
-      {/* Calendar */}
+      {/* Tasks */}
       <View style={styles.sectionHeaderAlt}>
-        <Text style={styles.sectionTitle}>This Month</Text>
+        <Text style={styles.sectionTitle}>My Tasks</Text>
       </View>
-
-      <View style={styles.calendarCard}>
-        <MiniCalendar
-          theme={{
-            backgroundColor: CARD_BG,
-            calendarBackground: CARD_BG,
-            textSectionTitleColor: MUTED,
-            selectedDayBackgroundColor: GOLD,
-            selectedDayTextColor: '#000',
-            todayTextColor: GOLD,
-            dayTextColor: TEXT,
-            textDisabledColor: '#6B7280',
-            arrowColor: GOLD,
-            monthTextColor: TEXT,
-          }}
-          hideExtraDays
-          markedDates={marked}
-          onDayPress={(d: DateObject) => {
-            console.log('Selected date:', d.dateString);
-          }}
-        />
+      <View style={{ paddingHorizontal: 16 }}>
+        {filteredTasks.length === 0 ? (
+          <Text style={{ color: MUTED }}>No tasks yet</Text>
+        ) : (
+          filteredTasks.slice(0, 6).map((t) => (
+            <View key={t.id} style={styles.taskRow}>
+              <View style={styles.taskDot} />
+              <Text style={styles.taskTitle} numberOfLines={1}>{t.title}</Text>
+              <Text style={styles.taskMeta}>· {new Date(t.createdAt).toLocaleDateString()}</Text>
+            </View>
+          ))
+        )}
       </View>
 
       {/* Bottom Navigation */}
       <View style={styles.navBar}>
-        <NavItem label="Home" icon="home" active />
-        <NavItem label="Calendar" icon="calendar" />
         <Pressable style={styles.addFab} onPress={onAdd}>
           <Ionicons name="add" size={26} color={DARK} />
         </Pressable>
-        <NavItem label="Tasks" icon="checkmark-done" />
-        <NavItem label="Profile" icon="person" />
       </View>
     </View>
   );
@@ -361,14 +314,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   calendarCard: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 20,
-    backgroundColor: CARD_BG,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-    overflow: 'hidden',
+    display: 'none'
   },
+  taskRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#1F1F1F' },
+  taskDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: GOLD, marginRight: 10 },
+  taskTitle: { color: TEXT, flex: 1, fontSize: 14, fontWeight: '700' },
+  taskMeta: { color: MUTED, fontSize: 12, marginLeft: 8 },
   navBar: {
     position: 'absolute',
     left: 16,
@@ -379,7 +330,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#1F1F1F',
   },

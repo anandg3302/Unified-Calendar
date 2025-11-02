@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import axios from 'axios';
 
-const API_BASE = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'https://10.180.141.59:8000';
+const API_BASE = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'https:// 10.24.170.133:8000';
 
 // Create axios instance with default config
 const api = axios.create({
@@ -37,7 +37,7 @@ api.interceptors.response.use(
         data: error.response.data,
         headers: error.response.headers,
       });
-      
+
       // Handle specific status codes
       if (error.response.status === 401) {
         // Handle unauthorized access
