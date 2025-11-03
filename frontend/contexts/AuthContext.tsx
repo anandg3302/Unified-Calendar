@@ -204,7 +204,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loginWithGoogle = async () => {
     try {
-      const returnUrl = 'exp://10.203.3.133:8081'; // 👈 your Expo redirect URL
+      // Build a deep link the app can handle, e.g., unifiedcalendar://oauth-callback
+      const returnUrl = Linking.createURL('oauth-callback');
       const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
 
       // 🔗 Open Google login
