@@ -208,47 +208,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const returnUrl = Linking.createURL('oauth-callback');
       const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
 
-      // 🔗 Open Google login
+      // 🔗 Open Google login in external browser and wait for deep link via listener
       console.log('🔗 Opening Google login with returnUrl:', returnUrl);
-      const result = await WebBrowser.openAuthSessionAsync(loginUrl, returnUrl);
-      console.log('🔗 WebBrowser result:', result.type, (result as any).url);
+      const oauthResultPromise = new Promise<{ token: string; user: any }>((resolve, reject) => {
+        oauthPromiseRef.current = { resolve, reject };
+      });
+      await WebBrowser.openBrowserAsync(loginUrl);
+      const { token: accessToken, user: userData } = await oauthResultPromise;
 
-      if (result.type === 'success' && 'url' in result && result.url) {
-        // Use Linking.parse to handle custom URL schemes (unifiedcalendar://)
-        const parsed = Linking.parse(result.url);
-        const token = parsed.queryParams?.token as string;
-        const userStr = parsed.queryParams?.user as string;
-
-        if (token && userStr) {
-          // Decode URI component if needed
-          let decodedUserStr = userStr;
-          try {
-            decodedUserStr = decodeURIComponent(userStr);
-          } catch (e) {
-            // If already decoded, use as is
-            console.log('User string already decoded or invalid encoding');
-          }
-          
-          const userData = JSON.parse(decodedUserStr);
-          await AsyncStorage.setItem('auth_token', token);
-          await AsyncStorage.setItem('user', JSON.stringify(userData));
-          setToken(token);
-          setUser(userData);
-          alert('✅ Google login successful!');
-          // Load Google events immediately
-          try {
-            await fetchGoogleEvents();
-          } catch (e) {
-            console.log('Google events fetch after Google login skipped:', (e as any)?.message || e);
-          }
-          // Navigation will be handled by the login component's useEffect
-        } else {
-          throw new Error('Missing token or user in redirect URL');
-        }
-      } else if (result.type === 'cancel' || result.type === 'dismiss') {
-        throw new Error('Google login dismissed — please complete sign-in');
-      } else {
-        throw new Error('Google login failed');
+      await AsyncStorage.setItem('auth_token', accessToken);
+      await AsyncStorage.setItem('user', JSON.stringify(userData));
+      setToken(accessToken);
+      setUser(userData);
+      alert('✅ Google login successful!');
+      // Load Google events immediately
+      try {
+        await fetchGoogleEvents();
+      } catch (e) {
+        console.log('Google events fetch after Google login skipped:', (e as any)?.message || e);
       }
     } catch (error: any) {
       console.error('❌ Google login error:', error);
