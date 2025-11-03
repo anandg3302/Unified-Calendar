@@ -80,6 +80,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Handle successful OAuth redirect
     if (params.queryParams?.token && params.queryParams?.user) {
       try {
+        // Close the in-app browser if still open (Android often needs this)
+        try { await WebBrowser.dismissBrowser(); } catch (e) {}
+
         const accessToken = params.queryParams.token as string;
         let userStr = params.queryParams.user as string;
 
