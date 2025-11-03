@@ -26,6 +26,8 @@ from googleapiclient.errors import HttpError
 import logging
 import urllib.parse
 import json
+import asyncio
+import uuid
 
 # ───────────────────────────────────────────────
 # Load environment
@@ -447,7 +449,6 @@ class WatchRequest(BaseModel):
 async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
     """Create a Google Calendar watch channel for push notifications."""
     try:
-        import uuid
         service = _get_calendar_service_from_refresh_token(current_user)
         channel_id = str(uuid.uuid4())
         request_body = {
@@ -457,13 +458,29 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         }
         if body.token:
             request_body["token"] = body.token
-        watch = service.events().watch(calendarId="primary", body=request_body).execute()
+        # Exponential backoff on creating the watch channel
+        max_attempts = 5
+        delay = 1
+        last_exc = None
+        watch = None
+        for _ in range(max_attempts):
+            try:
+                watch = service.events().watch(calendarId="primary", body=request_body).execute()
+                break
+            except Exception as e:
+                last_exc = e
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30)
+        if watch is None:
+            raise last_exc or Exception("Failed to create Google watch channel")
         # Persist channel metadata for stop/renew later
         await db.google_watch_channels.insert_one({
             "user_id": str(current_user["_id"]),
             "channel_id": watch.get("id"),
             "resource_id": watch.get("resourceId"),
             "expiration": watch.get("expiration"),
+            "address": body.webhook_url,
+            "token": body.token,
             "created_at": datetime.utcnow(),
         })
         logging.info("✅ Created Google watch channel %s", watch.get("id"))
@@ -550,7 +567,21 @@ async def _perform_google_incremental_sync(user_id: str):
             if next_page:
                 params["pageToken"] = next_page
             try:
-                resp = service.events().list(**params).execute()
+                # Exponential backoff for Google events list
+                max_attempts = 5
+                delay = 1
+                last_exc = None
+                resp = None
+                for _ in range(max_attempts):
+                    try:
+                        resp = service.events().list(**params).execute()
+                        break
+                    except Exception as e:
+                        last_exc = e
+                        await asyncio.sleep(delay)
+                        delay = min(delay * 2, 30)
+                if resp is None:
+                    raise last_exc or Exception("Failed to list Google events")
             except HttpError as he:
                 # 410 Gone: invalid sync token → clear and retry full
                 if getattr(he, "status_code", None) == 410 or "410" in str(he):
@@ -608,6 +639,22 @@ async def google_notify(request: Request, background_tasks: BackgroundTasks):
     return {"status": "ok"}
 
 
+async def perform_google_incremental_sync(headers: dict):
+    """Public wrapper to trigger incremental sync using notify headers.
+    Expects X-Goog-Channel-ID and X-Goog-Resource-ID in headers.
+    """
+    channel_id = headers.get("X-Goog-Channel-ID")
+    resource_id = headers.get("X-Goog-Resource-ID")
+    if not channel_id or not resource_id:
+        return
+    channel = await db.google_watch_channels.find_one({
+        "channel_id": channel_id,
+        "resource_id": resource_id,
+    })
+    if channel and channel.get("user_id"):
+        await _perform_google_incremental_sync(channel["user_id"])
+
+
 class StopWatchRequest(BaseModel):
     channel_id: str
     resource_id: str
@@ -628,6 +675,78 @@ async def stop_google_watch(body: StopWatchRequest, current_user: dict = Depends
     except Exception as e:
         logging.error("Error stopping Google watch: %s", str(e))
         raise HTTPException(status_code=500, detail="Failed to stop Google watch")
+
+
+async def _renew_channel_for_user(user_id: str, channel_doc: dict):
+    """Stop an existing channel and create a new one with the same address/token."""
+    try:
+        service = await _build_google_service_for_user_id(user_id)
+        address = channel_doc.get("address")
+        token_val = channel_doc.get("token")
+        if not address:
+            logging.warning("Channel missing address; cannot renew (user=%s)", user_id)
+            return
+        # Stop old channel with backoff
+        max_attempts = 5
+        delay = 1
+        for _ in range(max_attempts):
+            try:
+                service.channels().stop(body={"id": channel_doc["channel_id"], "resourceId": channel_doc["resource_id"]}).execute()
+                break
+            except Exception:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30)
+        # Create new watch
+        new_id = str(uuid.uuid4())
+        body = {"id": new_id, "type": "web_hook", "address": address}
+        if token_val:
+            body["token"] = token_val
+        delay = 1
+        watch = None
+        last_exc = None
+        for _ in range(max_attempts):
+            try:
+                watch = service.events().watch(calendarId="primary", body=body).execute()
+                break
+            except Exception as e:
+                last_exc = e
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 30)
+        if watch is None:
+            raise last_exc or Exception("Failed to renew Google watch channel")
+        # Update stored channel document
+        await db.google_watch_channels.update_one(
+            {"_id": channel_doc["_id"]},
+            {"$set": {
+                "channel_id": watch.get("id"),
+                "resource_id": watch.get("resourceId"),
+                "expiration": watch.get("expiration"),
+                "address": address,
+                "token": token_val,
+                "updated_at": datetime.utcnow(),
+            }}
+        )
+        logging.info("🔄 Renewed Google watch channel for user %s", user_id)
+    except Exception as e:
+        logging.error("Failed to renew channel for user %s: %s", user_id, str(e))
+
+
+async def _renew_google_channels_periodically():
+    """Background task to renew channels expiring within 24 hours."""
+    while True:
+        try:
+            now_ms = int(datetime.utcnow().timestamp() * 1000)
+            threshold_ms = now_ms + 24 * 60 * 60 * 1000
+            cursor = db.google_watch_channels.find({"expiration": {"$lte": str(threshold_ms)}})
+            channels = await cursor.to_list(length=1000)
+            for ch in channels:
+                user_id = ch.get("user_id")
+                if user_id:
+                    await _renew_channel_for_user(user_id, ch)
+        except Exception as e:
+            logging.error("Channel renewal loop error: %s", str(e))
+        # Check hourly
+        await asyncio.sleep(3600)
 
 # ───────────────────────────────────────────────
 # Auth routes
@@ -913,6 +1032,14 @@ app.include_router(microsoft_router)
 
 # ───────────────────────────────────────────────
 # Startup
+@app.on_event("startup")
+async def _startup_tasks():
+    try:
+        asyncio.create_task(_renew_google_channels_periodically())
+        logging.info("🕒 Started Google channel renewal background task")
+    except Exception as e:
+        logging.error("Failed to start renewal background task: %s", str(e))
+
 if __name__ == "__main__":
     import uvicorn
     
