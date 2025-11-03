@@ -227,7 +227,7 @@ async def google_login(frontend_redirect_uri: str = None):
 @app.get("/api/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
-    state = request.query_params.get("state")  # This contains the frontend redirect URI
+    state = request.query_params.get("state")  # Encoded JSON with frontend redirect URI
     if not code:
         return JSONResponse({"error": "No code provided"}, status_code=400)
 
@@ -291,8 +291,20 @@ async def google_callback(request: Request):
         access_token = create_access_token(data={"sub": user_id})
 
         # Build redirect URL for frontend
-        # Use state (frontend redirect URI) if provided, otherwise fall back to env var or default
-        frontend_redirect = state or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+        # Decode and parse state to extract the frontend redirect URI
+        try:
+            frontend_redirect_data = None
+            if state:
+                # state was encoded with urllib.parse.quote(json.dumps(...))
+                decoded_state = urllib.parse.unquote(state)
+                frontend_redirect_data = json.loads(decoded_state)
+            frontend_redirect = (
+                (frontend_redirect_data or {}).get("frontend_redirect_uri")
+                or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+            )
+        except Exception:
+            # Fallback if state is missing or malformed
+            frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
         user_data = {"id": user_id, "email": email, "name": name}
         from urllib.parse import urlencode, quote
         import json
@@ -309,8 +321,13 @@ async def google_callback(request: Request):
         return RedirectResponse(redirect_uri)
     except Exception as e:
         logger.error(f"Error in Google OAuth callback: {str(e)}")
-        # Try to redirect back to frontend with error
-        frontend_redirect = state or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+        # Try to redirect back to frontend with error (decode state if possible)
+        try:
+            decoded_state = urllib.parse.unquote(state) if state else None
+            data = json.loads(decoded_state) if decoded_state else {}
+            frontend_redirect = data.get("frontend_redirect_uri") or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+        except Exception:
+            frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
         error_redirect = f"{frontend_redirect}?{urlencode({'error': 'Google OAuth failed', 'error_description': str(e)})}"
         return RedirectResponse(error_redirect)
 
