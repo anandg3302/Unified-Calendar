@@ -209,15 +209,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
 
       // 🔗 Open Google login
+      console.log('🔗 Opening Google login with returnUrl:', returnUrl);
       const result = await WebBrowser.openAuthSessionAsync(loginUrl, returnUrl);
+      console.log('🔗 WebBrowser result:', result.type, (result as any).url);
 
-      if (result.type === 'success' && result.url) {
-        const url = new URL(result.url);
-        const token = url.searchParams.get('token');
-        const userStr = url.searchParams.get('user');
+      if (result.type === 'success' && 'url' in result && result.url) {
+        // Use Linking.parse to handle custom URL schemes (unifiedcalendar://)
+        const parsed = Linking.parse(result.url);
+        const token = parsed.queryParams?.token as string;
+        const userStr = parsed.queryParams?.user as string;
 
         if (token && userStr) {
-          const userData = JSON.parse(decodeURIComponent(userStr));
+          // Decode URI component if needed
+          let decodedUserStr = userStr;
+          try {
+            decodedUserStr = decodeURIComponent(userStr);
+          } catch (e) {
+            // If already decoded, use as is
+            console.log('User string already decoded or invalid encoding');
+          }
+          
+          const userData = JSON.parse(decodedUserStr);
           await AsyncStorage.setItem('auth_token', token);
           await AsyncStorage.setItem('user', JSON.stringify(userData));
           setToken(token);
@@ -239,7 +251,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('Google login failed');
       }
     } catch (error: any) {
-      alert(`Google login error: ${error.message}`);
+      console.error('❌ Google login error:', error);
+      alert(`Google login error: ${error.message || 'Unknown error occurred'}`);
     }
   };
 
