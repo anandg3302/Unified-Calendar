@@ -41,39 +41,51 @@ async def auth_google():
     oauth_states[state] = datetime.utcnow()  # store state
     return RedirectResponse(authorization_url)
 
-
 @router.get("/callback")
 async def google_callback(request: Request):
     """Step 2: Handle Google OAuth callback"""
-    state = request.query_params.get("state")
-    if state not in oauth_states:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
-    
+    state_str = request.query_params.get("state")
+    if not state_str:
+        raise HTTPException(status_code=400, detail="Missing state")
+
+    # Decode JSON-encoded state
+    try:
+        state = json.loads(state_str)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid state format")
+
+    frontend_redirect_uri = state.get("frontend_redirect_uri")
+    if not frontend_redirect_uri:
+        raise HTTPException(status_code=400, detail="Missing frontend redirect URI")
+
     flow = Flow.from_client_secrets_file(
         "client_secret.json",
         scopes=[
             "https://www.googleapis.com/auth/calendar.readonly",
             "openid",
-            "https://www.googleapis.com/auth/userinfo.email"
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
         ],
         redirect_uri=redirect_uri,
-        state=state
     )
-    
+
     flow.fetch_token(authorization_response=str(request.url))
     credentials = flow.credentials
 
-    # Fetch Google Calendar events
-    service = build("calendar", "v3", credentials=credentials)
-    events_result = service.events().list(calendarId="primary", maxResults=10).execute()
-    events = events_result.get("items", [])
+    # Get user info from Google
+    service = build("oauth2", "v2", credentials=credentials)
+    user_info = service.userinfo().get().execute()
 
-    # Optionally: create JWT to return to your frontend
-    token_data = {"sub": "google_user"}
+    # Build JWT
+    token_data = {"sub": user_info["id"]}
     access_token = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
 
-    return JSONResponse({
-        "access_token": access_token,
-        "token_type": "bearer",
-        "google_events": events
+    # ✅ Redirect user back to the frontend with token & user info
+    user_json = json.dumps({
+        "id": user_info["id"],
+        "email": user_info["email"],
+        "name": user_info["name"],
     })
+    redirect_url = f"{frontend_redirect_uri}?token={access_token}&user={user_json}"
+
+    return RedirectResponse(url=redirect_url)

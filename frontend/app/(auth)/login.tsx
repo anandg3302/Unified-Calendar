@@ -60,7 +60,7 @@ export default function Login() {
     try {
       await loginWithGoogle();
       // Navigate to Home after successful login using Expo Router
-      router.replace('/(tabs)/home');
+      router.replace('/(tabs)/calendar');
     } catch (error: any) {
       Alert.alert('Google Login Failed', error.message || 'Something went wrong');
     } finally {
