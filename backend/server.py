@@ -224,7 +224,7 @@ async def google_login(frontend_redirect_uri: str = None):
     )
     return RedirectResponse(auth_url)
 
-@api_router.get("/api/google/callback")
+@apo.get("/api/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
     state = request.query_params.get("state")  # This contains the frontend redirect URI
