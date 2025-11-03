@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { parseISO, format, isValid } from 'date-fns';
 import { useCalendarStore } from '../../stores/calendarStore';
 import { useTaskStore } from '../../stores/taskStore';
 
@@ -59,11 +60,23 @@ export default function HomeScreen() {
   }, [fetchEvents, loadTasks, startPolling, stopPolling]);
 
   const filteredEvents = useMemo(() => {
-    if (!query.trim()) return events.slice(0, 20);
+    // First filter out events with invalid dates or missing required data
+    const validEvents = events.filter((e) => {
+      if (!e.start_time) return false;
+      try {
+        const startDate = parseISO(e.start_time);
+        return isValid(startDate);
+      } catch {
+        return false;
+      }
+    });
+
+    // Then apply search filter if query exists
+    if (!query.trim()) return validEvents.slice(0, 20);
     const q = query.trim().toLowerCase();
-    return events.filter(
+    return validEvents.filter(
       (e) =>
-        e.title?.toLowerCase().includes(q) ||
+        (e.title || 'Untitled Event').toLowerCase().includes(q) ||
         e.description?.toLowerCase().includes(q) ||
         e.location?.toLowerCase().includes(q)
     ).slice(0, 20);
@@ -91,14 +104,35 @@ export default function HomeScreen() {
     item: EventItem;
     index: number;
   }) => {
-    const start = new Date(item.start_time);
-    const end = new Date(item.end_time);
-    const day = start.toLocaleDateString(undefined, { day: '2-digit' });
-    const month = start.toLocaleDateString(undefined, { month: 'short' });
-    const time = `${start.toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-    })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    // Safely parse dates with error handling
+    let day: string = '--';
+    let month: string = '---';
+    let time: string = 'Time TBD';
+
+    try {
+      if (item.start_time) {
+        const start = parseISO(item.start_time);
+        if (isValid(start)) {
+          day = format(start, 'dd');
+          month = format(start, 'MMM');
+          
+          if (item.end_time) {
+            const end = parseISO(item.end_time);
+            if (isValid(end)) {
+              time = `${format(start, 'h:mm a')} - ${format(end, 'h:mm a')}`;
+            } else {
+              time = format(start, 'h:mm a');
+            }
+          } else {
+            time = format(start, 'h:mm a');
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Error parsing event dates:', item.id, error);
+    }
+
+    const eventTitle = item.title?.trim() || 'Untitled Event';
 
     return (
       <Animated.View
@@ -107,11 +141,11 @@ export default function HomeScreen() {
       >
         <View style={styles.eventDatePill}>
           <Text style={styles.eventDay}>{day}</Text>
-          <Text style={styles.eventMonth}>{month}</Text>
+          <Text style={styles.eventMonth}>{month.toUpperCase()}</Text>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.eventTitle} numberOfLines={1}>
-            {item.title || 'Untitled Event'}
+            {eventTitle}
           </Text>
           <Text style={styles.eventSub}>{time}</Text>
           {!!item.location && (
@@ -160,6 +194,12 @@ export default function HomeScreen() {
           <View style={styles.skelCard} />
           <View style={[styles.skelCard, { marginLeft: 12 }]} />
           <View style={[styles.skelCard, { marginLeft: 12 }]} />
+        </View>
+      ) : filteredEvents.length === 0 ? (
+        <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
+          <Text style={{ color: MUTED, textAlign: 'center', fontSize: 14 }}>
+            No upcoming events found
+          </Text>
         </View>
       ) : (
         <FlatList

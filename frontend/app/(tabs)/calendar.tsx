@@ -52,12 +52,17 @@ export default function CalendarScreen() {
         
         // Mark dates with events
         events.forEach(event => {
-          const eventDate = parseISO(event.start_time).toISOString().slice(0, 10);
-          if (!marks[eventDate]) {
-            marks[eventDate] = {
-              marked: true,
-              dotColor: CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS] || GOLD
-            };
+          if (!event.start_time) return; // Skip events without start_time
+          try {
+            const eventDate = parseISO(event.start_time).toISOString().slice(0, 10);
+            if (!marks[eventDate]) {
+              marks[eventDate] = {
+                marked: true,
+                dotColor: CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS] || GOLD
+              };
+            }
+          } catch (error) {
+            console.warn('Invalid date format for event:', event.id, event.start_time);
           }
         });
         
@@ -110,11 +115,22 @@ export default function CalendarScreen() {
 
   const getDayEvents = useMemo(() => {
     if (!selectedDay) return [];
-    const selectedDate = parseISO(selectedDay);
-    return events.filter(event => {
-      const eventDate = parseISO(event.start_time);
-      return isSameDay(eventDate, selectedDate);
-    });
+    try {
+      const selectedDate = parseISO(selectedDay);
+      return events.filter(event => {
+        if (!event.start_time) return false; // Skip events without start_time
+        try {
+          const eventDate = parseISO(event.start_time);
+          return isSameDay(eventDate, selectedDate);
+        } catch (error) {
+          console.warn('Invalid date format for event:', event.id, event.start_time);
+          return false;
+        }
+      });
+    } catch (error) {
+      console.warn('Invalid selectedDay format:', selectedDay);
+      return [];
+    }
   }, [events, selectedDay]);
 
   const cycleView = () => {
@@ -220,52 +236,67 @@ export default function CalendarScreen() {
 
       {!!selectedDay && (
         <Animated.View entering={FadeInDown.duration(200)} style={styles.eventsCard}>
-          <Text style={styles.eventsTitle}>Events on {format(parseISO(selectedDay), 'MMMM d, yyyy')}</Text>
+          <Text style={styles.eventsTitle}>
+            Events on {(() => {
+              try {
+                return format(parseISO(selectedDay), 'MMMM d, yyyy');
+              } catch {
+                return selectedDay;
+              }
+            })()}
+          </Text>
           {getDayEvents.length === 0 ? (
             <Text style={styles.empty}>No events found</Text>
           ) : (
             <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
               {getDayEvents.map((event) => {
-                const eventDate = parseISO(event.start_time);
-                const color = CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS] || GOLD;
-                const isNewlyAccepted = event.is_invite && event.invite_status === 'accepted';
-                
-                return (
-                  <TouchableOpacity
-                    key={event.id}
-                    style={[
-                      styles.eventItem,
-                      isNewlyAccepted && styles.newlyAcceptedEvent
-                    ]}
-                    onPress={() => router.push(`/event-details?id=${event.id}`)}
-                  >
-                    <View style={[styles.eventColorBar, { backgroundColor: color }]} />
-                    <View style={styles.eventContent}>
-                      <Text style={styles.eventTitle}>{event.title}</Text>
-                      <Text style={styles.eventTime}>
-                        {format(eventDate, 'h:mm aa')} - {format(parseISO(event.end_time), 'h:mm aa')}
-                      </Text>
-                      {event.location && (
-                        <View style={styles.eventLocation}>
-                          <Ionicons name="location-outline" size={14} color={MUTED} />
-                          <Text style={styles.eventLocationText}>{event.location}</Text>
-                        </View>
-                      )}
-                      <View style={styles.eventMeta}>
-                        <View style={[styles.sourceChip, { backgroundColor: `${color}22`, borderColor: color }]}>
-                          <Text style={[styles.sourceChipText, { color }]}>
-                            {event.calendar_source.charAt(0).toUpperCase() + event.calendar_source.slice(1)}
-                          </Text>
-                        </View>
-                        {isNewlyAccepted && (
-                          <View style={styles.newBadge}>
-                            <Text style={styles.newBadgeText}>New</Text>
+                if (!event.start_time) return null; // Skip events without start_time
+                try {
+                  const eventDate = parseISO(event.start_time);
+                  const endDate = event.end_time ? parseISO(event.end_time) : null;
+                  const color = CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS] || GOLD;
+                  const isNewlyAccepted = event.is_invite && event.invite_status === 'accepted';
+                  
+                  return (
+                    <TouchableOpacity
+                      key={event.id}
+                      style={[
+                        styles.eventItem,
+                        isNewlyAccepted && styles.newlyAcceptedEvent
+                      ]}
+                      onPress={() => router.push(`/event-details?id=${event.id}`)}
+                    >
+                      <View style={[styles.eventColorBar, { backgroundColor: color }]} />
+                      <View style={styles.eventContent}>
+                        <Text style={styles.eventTitle}>{event.title}</Text>
+                        <Text style={styles.eventTime}>
+                          {format(eventDate, 'h:mm aa')} {endDate ? `- ${format(endDate, 'h:mm aa')}` : ''}
+                        </Text>
+                        {event.location && (
+                          <View style={styles.eventLocation}>
+                            <Ionicons name="location-outline" size={14} color={MUTED} />
+                            <Text style={styles.eventLocationText}>{event.location}</Text>
                           </View>
                         )}
+                        <View style={styles.eventMeta}>
+                          <View style={[styles.sourceChip, { backgroundColor: `${color}22`, borderColor: color }]}>
+                            <Text style={[styles.sourceChipText, { color }]}>
+                              {event.calendar_source.charAt(0).toUpperCase() + event.calendar_source.slice(1)}
+                            </Text>
+                          </View>
+                          {isNewlyAccepted && (
+                            <View style={styles.newBadge}>
+                              <Text style={styles.newBadgeText}>New</Text>
+                            </View>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  </TouchableOpacity>
-                );
+                    </TouchableOpacity>
+                  );
+                } catch (error) {
+                  console.warn('Error rendering event:', event.id, error);
+                  return null;
+                }
               })}
             </ScrollView>
           )}

@@ -12,8 +12,8 @@ export default function Index() {
 
     if (!isLoading) {
       if (user) {
-        console.log('User authenticated. Navigating to calendar.');
-        router.replace('/(tabs)/calendar');
+        console.log('User authenticated. Navigating to home.');
+        router.replace('/(tabs)/home');
       } else {
         console.log('User not authenticated. Navigating to login.');
         router.replace('/(auth)/login');

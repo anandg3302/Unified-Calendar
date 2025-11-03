@@ -138,7 +138,27 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       // Backend returns {local_events: [...], google_events: [...], apple_events: [...], microsoft_events: [...]}
       // We need to combine them into a single array
       const { local_events = [], google_events = [], apple_events = [], microsoft_events = [] } = response.data;
-      const allEvents = [...local_events, ...google_events, ...apple_events, ...microsoft_events];
+      // Normalize Google events to unified shape if backend returned raw Google format
+      const normalizedGoogle = (google_events as any[]).map((e: any) => {
+        // Handle both our new /api/google/events normalized shape and raw Google items
+        if (e && e.start_time) return e; // already normalized
+        const startObj = e?.start || {};
+        const endObj = e?.end || {};
+        const startIso = startObj.dateTime || startObj.date || null;
+        const endIso = endObj.dateTime || endObj.date || null;
+        return {
+          id: e?.id || e?._id || Math.random().toString(36).slice(2),
+          title: e?.summary || e?.title || '(No title)',
+          description: e?.description || '',
+          start_time: startIso,
+          end_time: endIso,
+          calendar_source: 'google',
+          location: e?.location || undefined,
+          is_invite: false,
+          created_at: new Date().toISOString(),
+        };
+      });
+      const allEvents = [...local_events, ...normalizedGoogle, ...apple_events, ...microsoft_events];
       
       // Check if Apple Calendar is connected
       const appleConnected = apple_events.length > 0 || response.data.apple_connected === true;

@@ -4,7 +4,8 @@ import multiprocessing_setup
 import sys
 import os
 
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, BackgroundTasks
+from fastapi.requests import Request as FastAPIRequest
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import RedirectResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
@@ -19,7 +20,12 @@ from jose import JWTError, jwt
 from bson import ObjectId
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials as GoogleCredentials
+from google.auth.transport.requests import Request as GoogleRequest
+from googleapiclient.errors import HttpError
 import logging
+import urllib.parse
+import json
 
 # ───────────────────────────────────────────────
 # Load environment
@@ -45,7 +51,13 @@ api_router = APIRouter(prefix="/api")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
-SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    "openid",
+]
 
 # ───────────────────────────────────────────────
 # Models
@@ -171,90 +183,451 @@ async def database_health_check():
 
 # ───────────────────────────────────────────────
 # Google OAuth routes
-@api_router.get("/google/login")
-def google_login():
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
-            }
-        },
-        scopes=SCOPES + ["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
+@app.get("/api/google/login")
+async def google_login(frontend_redirect_uri: str = None):
+    flow = Flow.from_client_secrets_file(
+        "client_secret.json",
+        scopes=SCOPES,
+        redirect_uri=GOOGLE_REDIRECT_URI,
     )
-    flow.redirect_uri = GOOGLE_REDIRECT_URI
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+
+    # Store the frontend redirect URI in state
+    state_data = {"frontend_redirect_uri": frontend_redirect_uri}
+    state = urllib.parse.quote(json.dumps(state_data))
+
+    auth_url, _ = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+        state=state
+    )
     return RedirectResponse(auth_url)
 
 @api_router.get("/google/callback")
 async def google_callback(request: Request):
     code = request.query_params.get("code")
+    state = request.query_params.get("state")  # This contains the frontend redirect URI
     if not code:
         return JSONResponse({"error": "No code provided"}, status_code=400)
 
-    # Google OAuth flow
-    flow = Flow.from_client_config(
-        {
-            "web": {
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [GOOGLE_REDIRECT_URI],
-            }
-        },
-        scopes=SCOPES + [
-            "openid",
-            "https://www.googleapis.com/auth/userinfo.email",
-            "https://www.googleapis.com/auth/userinfo.profile",
-        ],
-    )
-    flow.redirect_uri = GOOGLE_REDIRECT_URI
-    flow.fetch_token(code=code)
-    credentials = flow.credentials
-
-    # Get user info
-    userinfo_service = build("oauth2", "v2", credentials=credentials)
-    user_info = userinfo_service.userinfo().get().execute()
-    email = user_info.get("email")
-    name = user_info.get("name", email.split("@")[0] if email else "User")
-
-    if not email:
-        return JSONResponse({"error": "Could not get email from Google"}, status_code=400)
-
-    # Find or create user in MongoDB
-    user = await db.users.find_one({"email": email})
-    if not user:
-        user_dict = {
-            "email": email,
-            "name": name,
-            "password_hash": None,
-            "google_refresh_token": credentials.refresh_token,
-            "created_at": datetime.utcnow(),
-        }
-        result = await db.users.insert_one(user_dict)
-        user_id = str(result.inserted_id)
-    else:
-        await db.users.update_one(
-            {"_id": user["_id"]},
-            {"$set": {"google_refresh_token": credentials.refresh_token}},
+    try:
+        # Google OAuth flow
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [GOOGLE_REDIRECT_URI],
+                }
+            },
+            scopes=SCOPES,
         )
-        user_id = str(user["_id"])
+        flow.redirect_uri = GOOGLE_REDIRECT_URI
+        flow.fetch_token(code=code)
+        credentials = flow.credentials
 
-    # Generate JWT
-    access_token = create_access_token(data={"sub": user_id})
+        # Get user info
+        userinfo_service = build("oauth2", "v2", credentials=credentials)
+        user_info = userinfo_service.userinfo().get().execute()
+        email = user_info.get("email")
+        name = user_info.get("name", email.split("@")[0] if email else "User")
 
-    # Build redirect URL for frontend
-    FRONTEND_REDIRECT = os.getenv("FRONTEND_REDIRECT", "exp://10.203.3.133:8081")
-    user_data = {"id": user_id, "email": email, "name": name}
-    from urllib.parse import urlencode
-    import json
-    redirect_uri = f"{FRONTEND_REDIRECT}?{urlencode({'token': access_token, 'user': json.dumps(user_data)})}"
-    print("🔗 Redirecting to:", redirect_uri)  # Debug log
-    return RedirectResponse(redirect_uri)
+        if not email:
+            return JSONResponse({"error": "Could not get email from Google"}, status_code=400)
+
+        # Find or create user in MongoDB
+        user = await db.users.find_one({"email": email})
+        
+        # Store granted scopes with the token for scope validation
+        granted_scopes = credentials.scopes if hasattr(credentials, 'scopes') else SCOPES
+        
+        if not user:
+            user_dict = {
+                "email": email,
+                "name": name,
+                "password_hash": None,
+                "google_refresh_token": credentials.refresh_token,
+                "google_scopes": granted_scopes,  # Store granted scopes
+                "google_scopes_updated_at": datetime.utcnow(),  # Track when scopes were updated
+                "created_at": datetime.utcnow(),
+            }
+            result = await db.users.insert_one(user_dict)
+            user_id = str(result.inserted_id)
+        else:
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {
+                    "google_refresh_token": credentials.refresh_token,
+                    "google_scopes": granted_scopes,  # Update stored scopes
+                    "google_scopes_updated_at": datetime.utcnow(),  # Update timestamp
+                }},
+            )
+            user_id = str(user["_id"])
+
+        # Generate JWT
+        access_token = create_access_token(data={"sub": user_id})
+
+        # Build redirect URL for frontend
+        # Use state (frontend redirect URI) if provided, otherwise fall back to env var or default
+        frontend_redirect = state or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+        user_data = {"id": user_id, "email": email, "name": name}
+        from urllib.parse import urlencode, quote
+        import json
+        # Properly encode the user JSON string
+        user_json = json.dumps(user_data)
+        # urlencode will handle the encoding properly
+        query_params = urlencode({
+            'token': access_token,
+            'user': user_json  # urlencode will properly encode the JSON string
+        })
+        redirect_uri = f"{frontend_redirect}?{query_params}"
+        print("🔗 Redirecting to:", redirect_uri)  # Debug log
+        print("🔗 User data:", user_json)  # Debug log
+        return RedirectResponse(redirect_uri)
+    except Exception as e:
+        logger.error(f"Error in Google OAuth callback: {str(e)}")
+        # Try to redirect back to frontend with error
+        frontend_redirect = state or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+        error_redirect = f"{frontend_redirect}?{urlencode({'error': 'Google OAuth failed', 'error_description': str(e)})}"
+        return RedirectResponse(error_redirect)
+
+# ───────────────────────────────────────────────
+# Google Calendar REST Endpoints
+@api_router.get("/google/events")
+async def get_google_events(current_user: dict = Depends(get_current_user)):
+    """Fetch upcoming events from user's primary Google Calendar."""
+    user_id = str(current_user["_id"]) if "_id" in current_user else None
+    refresh_token = current_user.get("google_refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Google account not connected")
+
+    try:
+        stored_scopes = current_user.get("google_scopes", SCOPES)
+        creds = GoogleCredentials(
+            None,
+            refresh_token=refresh_token,
+            client_id=GOOGLE_CLIENT_ID,
+            client_secret=GOOGLE_CLIENT_SECRET,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=stored_scopes,
+        )
+        creds.refresh(GoogleRequest())
+        service = build("calendar", "v3", credentials=creds)
+
+        now_iso = datetime.utcnow().isoformat() + "Z"
+        events_result = service.events().list(
+            calendarId="primary",
+            timeMin=now_iso,
+            maxResults=50,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+        items = events_result.get("items", [])
+
+        def normalize(e: dict):
+            start = e.get("start", {})
+            end = e.get("end", {})
+            return {
+                "id": e.get("id"),
+                "summary": e.get("summary") or "(No title)",
+                "start": start.get("dateTime") or start.get("date"),
+                "end": end.get("dateTime") or end.get("date"),
+                "source": "google",
+            }
+
+        events = [normalize(e) for e in items]
+        logging.info("✅ Fetched Google events successfully for user %s", user_id)
+        return {"events": events}
+    except Exception as e:
+        logging.error("Failed to fetch Google events: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch Google events")
+
+
+class GoogleEventCreate(BaseModel):
+    summary: str
+    description: Optional[str] = None
+    start: dict  # { dateTime: ISO, timeZone?: str } or { date: YYYY-MM-DD }
+    end: dict    # same shape as start
+    location: Optional[str] = None
+
+
+class GoogleEventUpdate(BaseModel):
+    summary: Optional[str] = None
+    description: Optional[str] = None
+    start: Optional[dict] = None
+    end: Optional[dict] = None
+    location: Optional[str] = None
+
+
+def _get_calendar_service_from_refresh_token(current_user: dict):
+    refresh_token = current_user.get("google_refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Google account not connected")
+    stored_scopes = current_user.get("google_scopes", SCOPES)
+    creds = GoogleCredentials(
+        None,
+        refresh_token=refresh_token,
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=stored_scopes,
+    )
+    creds.refresh(GoogleRequest())
+    return build("calendar", "v3", credentials=creds)
+
+
+@api_router.post("/google/add_event")
+async def add_google_event(payload: GoogleEventCreate, current_user: dict = Depends(get_current_user)):
+    try:
+        service = _get_calendar_service_from_refresh_token(current_user)
+        body = {
+            "summary": payload.summary,
+            "description": payload.description,
+            "start": payload.start,
+            "end": payload.end,
+            "location": payload.location,
+        }
+        # Remove None fields
+        body = {k: v for k, v in body.items() if v is not None}
+        created = service.events().insert(calendarId="primary", body=body).execute()
+        logging.info("✅ Created Google event %s", created.get("id"))
+        return {"id": created.get("id"), "status": "created"}
+    except Exception as e:
+        logging.error("Error creating Google event: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to create Google event")
+
+
+@api_router.put("/google/update_event/{event_id}")
+async def update_google_event(event_id: str, payload: GoogleEventUpdate, current_user: dict = Depends(get_current_user)):
+    try:
+        service = _get_calendar_service_from_refresh_token(current_user)
+        existing = service.events().get(calendarId="primary", eventId=event_id).execute()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Event not found")
+        # Apply updates
+        if payload.summary is not None:
+            existing["summary"] = payload.summary
+        if payload.description is not None:
+            existing["description"] = payload.description
+        if payload.start is not None:
+            existing["start"] = payload.start
+        if payload.end is not None:
+            existing["end"] = payload.end
+        if payload.location is not None:
+            existing["location"] = payload.location
+        updated = service.events().update(calendarId="primary", eventId=event_id, body=existing).execute()
+        logging.info("✅ Updated Google event %s", event_id)
+        return {"id": updated.get("id"), "status": "updated"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("Error updating Google event: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to update Google event")
+
+
+@api_router.delete("/google/delete_event/{event_id}")
+async def delete_google_event(event_id: str, current_user: dict = Depends(get_current_user)):
+    try:
+        service = _get_calendar_service_from_refresh_token(current_user)
+        service.events().delete(calendarId="primary", eventId=event_id).execute()
+        logging.info("✅ Deleted Google event %s", event_id)
+        return {"id": event_id, "status": "deleted"}
+    except Exception as e:
+        logging.error("Error deleting Google event: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to delete Google event")
+
+
+class WatchRequest(BaseModel):
+    webhook_url: str
+    token: Optional[str] = None  # Opaque token to verify notifications
+
+
+@api_router.post("/google/watch")
+async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
+    """Create a Google Calendar watch channel for push notifications."""
+    try:
+        import uuid
+        service = _get_calendar_service_from_refresh_token(current_user)
+        channel_id = str(uuid.uuid4())
+        request_body = {
+            "id": channel_id,
+            "type": "web_hook",
+            "address": body.webhook_url,
+        }
+        if body.token:
+            request_body["token"] = body.token
+        watch = service.events().watch(calendarId="primary", body=request_body).execute()
+        # Persist channel metadata for stop/renew later
+        await db.google_watch_channels.insert_one({
+            "user_id": str(current_user["_id"]),
+            "channel_id": watch.get("id"),
+            "resource_id": watch.get("resourceId"),
+            "expiration": watch.get("expiration"),
+            "created_at": datetime.utcnow(),
+        })
+        logging.info("✅ Created Google watch channel %s", watch.get("id"))
+        return {"watch": watch}
+    except Exception as e:
+        logging.error("Error creating Google watch: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to create Google watch channel")
+
+
+async def _build_google_service_for_user_id(user_id: str):
+    user = await db.users.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    refresh_token = user.get("google_refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="Google not connected")
+    stored_scopes = user.get("google_scopes", SCOPES)
+    creds = GoogleCredentials(
+        None,
+        refresh_token=refresh_token,
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        token_uri="https://oauth2.googleapis.com/token",
+        scopes=stored_scopes,
+    )
+    creds.refresh(GoogleRequest())
+    return build("calendar", "v3", credentials=creds)
+
+
+async def _upsert_google_event_for_user(user_id: str, item: dict):
+    start = item.get("start", {})
+    end = item.get("end", {})
+    start_iso = start.get("dateTime") or start.get("date")
+    end_iso = end.get("dateTime") or end.get("date")
+    update_doc = {
+        "title": item.get("summary") or "(No title)",
+        "description": item.get("description"),
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "calendar_source": "google",
+        "location": item.get("location"),
+        "is_invite": False,
+        "created_at": datetime.utcnow(),
+        "user_id": user_id,
+        "external_id": item.get("id"),
+    }
+    # Remove None values to avoid overwriting with nulls
+    update_doc = {k: v for k, v in update_doc.items() if v is not None}
+    await db.events.update_one(
+        {"user_id": user_id, "calendar_source": "google", "external_id": item.get("id")},
+        {"$set": update_doc},
+        upsert=True,
+    )
+
+
+async def _delete_google_event_for_user(user_id: str, external_id: str):
+    await db.events.delete_one({
+        "user_id": user_id,
+        "calendar_source": "google",
+        "external_id": external_id,
+    })
+
+
+async def _perform_google_incremental_sync(user_id: str):
+    """Fetch deltas using syncToken if available, otherwise do a windowed full sync."""
+    try:
+        service = await _build_google_service_for_user_id(user_id)
+        state = await db.google_sync_state.find_one({"user_id": user_id})
+        params = {
+            "calendarId": "primary",
+            "singleEvents": True,
+        }
+        if state and state.get("sync_token"):
+            params["syncToken"] = state["sync_token"]
+        else:
+            # Initial sync: pull recent 60 days
+            from datetime import timedelta
+            params["timeMin"] = (datetime.utcnow() - timedelta(days=60)).isoformat() + "Z"
+            params["maxResults"] = 2500
+
+        next_page = None
+        next_sync_token = None
+        while True:
+            if next_page:
+                params["pageToken"] = next_page
+            try:
+                resp = service.events().list(**params).execute()
+            except HttpError as he:
+                # 410 Gone: invalid sync token → clear and retry full
+                if getattr(he, "status_code", None) == 410 or "410" in str(he):
+                    await db.google_sync_state.delete_one({"user_id": user_id})
+                    # Restart with full windowed sync
+                    params.pop("syncToken", None)
+                    from datetime import timedelta
+                    params["timeMin"] = (datetime.utcnow() - timedelta(days=60)).isoformat() + "Z"
+                    continue
+                raise
+
+            items = resp.get("items", [])
+            for item in items:
+                if item.get("status") == "cancelled":
+                    await _delete_google_event_for_user(user_id, item.get("id"))
+                else:
+                    await _upsert_google_event_for_user(user_id, item)
+
+            next_page = resp.get("nextPageToken")
+            if not next_page:
+                next_sync_token = resp.get("nextSyncToken") or next_sync_token
+                break
+
+        if next_sync_token:
+            await db.google_sync_state.update_one(
+                {"user_id": user_id},
+                {"$set": {"sync_token": next_sync_token, "updated_at": datetime.utcnow()}},
+                upsert=True,
+            )
+        logging.info("✅ Incremental Google sync complete for user %s", user_id)
+    except Exception as e:
+        logging.error("Google incremental sync failed for user %s: %s", user_id, str(e))
+
+
+@api_router.post("/google/notify")
+async def google_notify(request: Request, background_tasks: BackgroundTasks):
+    """Receive Google push notifications. Google expects 200 OK quickly."""
+    # Read headers from Google
+    channel_id = request.headers.get("X-Goog-Channel-ID")
+    resource_id = request.headers.get("X-Goog-Resource-ID")
+    resource_state = request.headers.get("X-Goog-Resource-State")
+    token = request.headers.get("X-Goog-Channel-Token")
+    logging.info(
+        "📬 Google notify: channel=%s resource=%s state=%s", channel_id, resource_id, resource_state
+    )
+    if not channel_id or not resource_id:
+        return {"status": "ignored"}
+    # Lookup which user this resource belongs to
+    channel = await db.google_watch_channels.find_one({
+        "channel_id": channel_id,
+        "resource_id": resource_id,
+    })
+    if channel and channel.get("user_id"):
+        background_tasks.add_task(_perform_google_incremental_sync, channel["user_id"])
+    return {"status": "ok"}
+
+
+class StopWatchRequest(BaseModel):
+    channel_id: str
+    resource_id: str
+
+
+@api_router.post("/google/stop_watch")
+async def stop_google_watch(body: StopWatchRequest, current_user: dict = Depends(get_current_user)):
+    try:
+        service = await _build_google_service_for_user_id(str(current_user["_id"]))
+        # Stop the channel
+        service.channels().stop(body={"id": body.channel_id, "resourceId": body.resource_id}).execute()
+        await db.google_watch_channels.delete_one({
+            "user_id": str(current_user["_id"]),
+            "channel_id": body.channel_id,
+            "resource_id": body.resource_id,
+        })
+        return {"status": "stopped"}
+    except Exception as e:
+        logging.error("Error stopping Google watch: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to stop Google watch")
 
 # ───────────────────────────────────────────────
 # Auth routes
@@ -287,11 +660,61 @@ async def login(user_data: UserLogin):
 # Calendar Sources
 @api_router.get("/calendar-sources", response_model=List[CalendarSource])
 async def get_calendar_sources(current_user: dict = Depends(get_current_user)):
-    return [
+    sources = [
         CalendarSource(id="google", name="Google Calendar", type="google", color="#4285F4"),
         CalendarSource(id="apple", name="Apple Calendar", type="apple", color="#FF3B30"),
         CalendarSource(id="outlook", name="Outlook Calendar", type="outlook", color="#0078D4")
     ]
+    
+    # Check if Google needs re-authentication
+    google_token = current_user.get("google_refresh_token")
+    if google_token:
+        stored_scopes = current_user.get("google_scopes", [])
+        required_scopes = [
+            "https://www.googleapis.com/auth/calendar",
+            "https://www.googleapis.com/auth/calendar.events"
+        ]
+        has_required_scopes = any(
+            required_scope in stored_scopes 
+            for required_scope in required_scopes
+        ) if stored_scopes else False
+        
+        # Mark Google source as needing re-auth if scopes are insufficient
+        if not has_required_scopes:
+            for source in sources:
+                if source.id == "google":
+                    source.is_active = False
+    
+    return sources
+
+# ───────────────────────────────────────────────
+# Google Re-authentication Check
+@api_router.get("/google/reauth-required")
+async def check_google_reauth_required(current_user: dict = Depends(get_current_user)):
+    """Check if user needs to re-authenticate Google account for new scopes"""
+    user_id = str(current_user["_id"])
+    refresh_token = current_user.get("google_refresh_token")
+    
+    if not refresh_token:
+        return {"reauth_required": False, "reason": "No Google account connected"}
+    
+    stored_scopes = current_user.get("google_scopes", [])
+    required_scopes = [
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/calendar.events"
+    ]
+    
+    has_required_scopes = any(
+        required_scope in stored_scopes 
+        for required_scope in required_scopes
+    ) if stored_scopes else False
+    
+    return {
+        "reauth_required": not has_required_scopes,
+        "reason": "Old scopes detected - re-authentication needed for write access" if not has_required_scopes else None,
+        "current_scopes": stored_scopes,
+        "required_scopes": required_scopes
+    }
 
 # ───────────────────────────────────────────────
 # Events
@@ -309,22 +732,70 @@ async def get_events(current_user: dict = Depends(get_current_user)):
     google_events = []
     refresh_token = current_user.get("google_refresh_token")
     if refresh_token:
-        from google.oauth2.credentials import Credentials
-        creds = Credentials(
-            None,
-            refresh_token=refresh_token,
-            client_id=GOOGLE_CLIENT_ID,
-            client_secret=GOOGLE_CLIENT_SECRET,
-            token_uri="https://oauth2.googleapis.com/token"
-        )
-        service = build("calendar", "v3", credentials=creds)
-        events_result = service.events().list(
-            calendarId="primary",
-            maxResults=20,
-            singleEvents=True,
-            orderBy="startTime"
-        ).execute()
-        google_events = events_result.get("items", [])
+        try:
+            from google.oauth2.credentials import Credentials
+            from google.auth.exceptions import RefreshError
+            
+            # Check if user has sufficient scopes
+            stored_scopes = current_user.get("google_scopes", [])
+            required_scopes = [
+                "https://www.googleapis.com/auth/calendar",
+                "https://www.googleapis.com/auth/calendar.events"
+            ]
+            
+            # Check if stored scopes include required scopes
+            has_required_scopes = any(
+                required_scope in stored_scopes 
+                for required_scope in required_scopes
+            ) if stored_scopes else False
+            
+            if not has_required_scopes:
+                # Old token with insufficient scopes - need re-authentication
+                logger.warning(f"User {user_id} has insufficient Google scopes. Re-authentication required.")
+                # Don't throw error, just skip Google events and let frontend handle re-auth
+                pass
+            else:
+                creds = Credentials(
+                    None,
+                    refresh_token=refresh_token,
+                    client_id=GOOGLE_CLIENT_ID,
+                    client_secret=GOOGLE_CLIENT_SECRET,
+                    token_uri="https://oauth2.googleapis.com/token",
+                    scopes=stored_scopes if stored_scopes else SCOPES  # Use stored scopes
+                )
+                
+                # Refresh the access token
+                try:
+                    from google.auth.transport.requests import Request as GoogleRequest
+                    creds.refresh(GoogleRequest())
+                    service = build("calendar", "v3", credentials=creds)
+                    events_result = service.events().list(
+                        calendarId="primary",
+                        maxResults=20,
+                        singleEvents=True,
+                        orderBy="startTime"
+                    ).execute()
+                    google_events = events_result.get("items", [])
+                except RefreshError as e:
+                    logger.error(f"Failed to refresh Google token for user {user_id}: {str(e)}")
+                    # Token may be revoked - need re-authentication
+                    pass
+                except Exception as e:
+                    # Check if error is due to insufficient permissions
+                    error_str = str(e).lower()
+                    if "insufficient" in error_str or "permission" in error_str or "scope" in error_str:
+                        logger.warning(f"User {user_id} has insufficient permissions. Re-authentication required.")
+                        # Clear the old token to force re-auth
+                        await db.users.update_one(
+                            {"_id": ObjectId(user_id)},
+                            {"$unset": {"google_refresh_token": "", "google_scopes": ""}}
+                        )
+                    else:
+                        logger.error(f"Error fetching Google events for user {user_id}: {str(e)}")
+                    pass
+        except Exception as e:
+            logger.error(f"Error initializing Google credentials for user {user_id}: {str(e)}")
+            pass
 
     # Fetch Apple events if available
     apple_events = []
