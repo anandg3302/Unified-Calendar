@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "unifiedcalender1",
+    "name": "Unified Calendar",
+    "slug": "unified-calendar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "unifiedcalendar",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "cli": {
@@ -15,7 +15,7 @@
       "EXPO_PUBLIC_BACKEND_URL": "https://unified-calendar-zflg.onrender.com",
       "router": {},
       "eas": {
-        "projectId": "69762b7c-f38e-451c-9980-dba308664368"
+        "projectId": "88b3c960-181a-4e2d-8877-c4cf95a0d663"
       }
     },
     "ios": {
@@ -30,7 +30,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anandg9392.frontend",
+      "package": "com.anandg9100.unifiedcalendar",
       "runtimeVersion": "1.0.0"
     },
     "web": {
@@ -56,6 +56,6 @@
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "anandg1"
+    "owner": "anand9100"
   }
 }

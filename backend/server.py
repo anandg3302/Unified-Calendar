@@ -2,7 +2,7 @@
 import multiprocessing_setup
 
 import sys
-import os
+import os,json
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request, BackgroundTasks
 from fastapi.requests import Request as FastAPIRequest
@@ -29,6 +29,26 @@ import json
 import asyncio
 import uuid
 
+google_client = {
+    "web": {
+        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        "project_id": "unified-calendar",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+        "redirect_uris": [
+            "http://localhost:8000/api/google/callback",
+            "https://unified-calendar-zflg.onrender.com/api/google/callback",
+            "https://auth.expo.io/@anand9100/unified-calendar"
+        ],
+        "javascript_origins": ["https://unified-calendar-zflg.onrender.com"]
+    }
+}
+
+# Write to a temporary file (so Flow.from_client_secrets_file can use it)
+with open("client_secret.json", "w") as f:
+    json.dump(google_client, f)
 # ───────────────────────────────────────────────
 # Load environment
 ROOT_DIR = Path(__file__).parent
