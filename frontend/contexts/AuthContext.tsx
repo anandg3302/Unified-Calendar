@@ -173,7 +173,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login with email and password
   const login = async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${API_URL}/api/auth/login`, { email, password });
+      const response = await axios.post(`${API_URL}/auth/login`, { email, password });
       const { access_token, user: userData } = response.data;
 
       await localStorage.setItem('token', access_token);
@@ -204,7 +204,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Register with email, password, and name
   const register = async (email: string, password: string, name: string) => {
     try {
-      const response = await axios.post(`${API_URL}/api/auth/register`, { email, password, name });
+      const response = await axios.post(`${API_URL}/auth/register`, { email, password, name },
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
       const { access_token, user: userData } = response.data;
 
       await localStorage.setItem('token', access_token);
