@@ -1,4 +1,4 @@
-package com.anandg9392.frontend
+package com.anandg9100.unifiedcalendar
 
 import android.app.Application
 import android.content.res.Configuration

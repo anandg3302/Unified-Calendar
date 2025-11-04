@@ -1,4 +1,4 @@
-package com.anandg9392.frontend
+package com.anandg9100.unifiedcalendar
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
