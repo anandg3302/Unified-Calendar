@@ -191,7 +191,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Let the index.tsx handle navigation based on auth state
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || error.message || 'Login failed');
+      console.log('❌ Login error:', {
+        url: `${API_URL}/api/auth/login`,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error?.message,
+      });
+      throw new Error(error?.response?.data?.detail || error?.message || 'Login failed');
     }
   };
 
@@ -209,7 +215,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Let the index.tsx handle navigation based on auth state
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || error.message || 'Registration failed');
+      console.log('❌ Register error:', {
+        url: `${API_URL}/api/auth/register`,
+        status: error?.response?.status,
+        data: error?.response?.data,
+        message: error?.message,
+      });
+      throw new Error(error?.response?.data?.detail || error?.message || 'Registration failed');
     }
   };
 
