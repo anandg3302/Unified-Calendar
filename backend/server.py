@@ -155,7 +155,7 @@ def create_access_token(data: dict):
 
 # ───────────────────────────────────────────────
 # Health check routes
-@api_router.get("/health")
+@app.get("/health")
 async def health_check():
     """Check if the server and database are running properly"""
     try:
@@ -174,7 +174,7 @@ async def health_check():
             "timestamp": datetime.utcnow().isoformat()
         }
 
-@api_router.get("/health/db")
+@app.get("/health/db")
 async def database_health_check():
     """Detailed database connection health check"""
     try:
@@ -334,7 +334,7 @@ async def google_callback(request: Request):
 
 # ───────────────────────────────────────────────
 # Google Calendar REST Endpoints
-@api_router.get("/google/events")
+@app.get("/google/events")
 async def get_google_events(current_user: dict = Depends(get_current_user)):
     """Fetch upcoming events from user's primary Google Calendar."""
     user_id = str(current_user["_id"]) if "_id" in current_user else None
@@ -417,7 +417,7 @@ def _get_calendar_service_from_refresh_token(current_user: dict):
     return build("calendar", "v3", credentials=creds)
 
 
-@api_router.post("/google/add_event")
+@app.post("/google/add_event")
 async def add_google_event(payload: GoogleEventCreate, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -438,7 +438,7 @@ async def add_google_event(payload: GoogleEventCreate, current_user: dict = Depe
         raise HTTPException(status_code=500, detail="Failed to create Google event")
 
 
-@api_router.put("/google/update_event/{event_id}")
+@app.put("/google/update_event/{event_id}")
 async def update_google_event(event_id: str, payload: GoogleEventUpdate, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -466,7 +466,7 @@ async def update_google_event(event_id: str, payload: GoogleEventUpdate, current
         raise HTTPException(status_code=500, detail="Failed to update Google event")
 
 
-@api_router.delete("/google/delete_event/{event_id}")
+@app.delete("/google/delete_event/{event_id}")
 async def delete_google_event(event_id: str, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -483,7 +483,7 @@ class WatchRequest(BaseModel):
     token: Optional[str] = None  # Opaque token to verify notifications
 
 
-@api_router.post("/google/watch")
+@app.post("/google/watch")
 async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
     """Create a Google Calendar watch channel for push notifications."""
     try:
@@ -654,7 +654,7 @@ async def _perform_google_incremental_sync(user_id: str):
         logging.error("Google incremental sync failed for user %s: %s", user_id, str(e))
 
 
-@api_router.post("/google/notify")
+@app.post("/google/notify")
 async def google_notify(request: Request, background_tasks: BackgroundTasks):
     """Receive Google push notifications. Google expects 200 OK quickly."""
     # Read headers from Google
@@ -698,7 +698,7 @@ class StopWatchRequest(BaseModel):
     resource_id: str
 
 
-@api_router.post("/google/stop_watch")
+@app.post("/google/stop_watch")
 async def stop_google_watch(body: StopWatchRequest, current_user: dict = Depends(get_current_user)):
     try:
         service = await _build_google_service_for_user_id(str(current_user["_id"]))
@@ -788,7 +788,7 @@ async def _renew_google_channels_periodically():
 
 # ───────────────────────────────────────────────
 # Auth routes
-@api_router.post("/auth/register", response_model=Token)
+@app.post("/auth/register", response_model=Token)
 async def register(user_data: UserRegister):
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
@@ -804,7 +804,7 @@ async def register(user_data: UserRegister):
     access_token = create_access_token(data={"sub": user_id})
     return {"access_token": access_token, "token_type": "bearer", "user": {"id": user_id, "email": user_data.email, "name": user_data.name}}
 
-@api_router.post("/auth/login", response_model=Token)
+@app.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
     user = await db.users.find_one({"email": user_data.email})
     if not user or not verify_password(user_data.password, user["password_hash"]):
@@ -815,7 +815,7 @@ async def login(user_data: UserLogin):
 
 # ───────────────────────────────────────────────
 # Calendar Sources
-@api_router.get("/calendar-sources", response_model=List[CalendarSource])
+@app.get("/calendar-sources", response_model=List[CalendarSource])
 async def get_calendar_sources(current_user: dict = Depends(get_current_user)):
     sources = [
         CalendarSource(id="google", name="Google Calendar", type="google", color="#4285F4"),
@@ -846,7 +846,7 @@ async def get_calendar_sources(current_user: dict = Depends(get_current_user)):
 
 # ───────────────────────────────────────────────
 # Google Re-authentication Check
-@api_router.get("/google/reauth-required")
+@app.get("/google/reauth-required")
 async def check_google_reauth_required(current_user: dict = Depends(get_current_user)):
     """Check if user needs to re-authenticate Google account for new scopes"""
     user_id = str(current_user["_id"])
@@ -875,7 +875,7 @@ async def check_google_reauth_required(current_user: dict = Depends(get_current_
 
 # ───────────────────────────────────────────────
 # Events
-@api_router.get("/events")
+@app.get("/events")
 async def get_events(current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
 
@@ -996,7 +996,7 @@ async def get_events(current_user: dict = Depends(get_current_user)):
         "microsoft_events": microsoft_events
     }
 
-@api_router.post("/events")
+@app.post("/events")
 async def create_event(event: dict, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     event["user_id"] = user_id
@@ -1005,7 +1005,7 @@ async def create_event(event: dict, current_user: dict = Depends(get_current_use
     event["id"] = str(result.inserted_id)
     event["_id"] = str(result.inserted_id)
     return {"message": "Event created successfully", "event": event}
-@api_router.put("/events/{event_id}")
+@app.put("/events/{event_id}")
 async def update_event(event_id: str, event: EventUpdate, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
 
@@ -1034,7 +1034,7 @@ async def update_event(event_id: str, event: EventUpdate, current_user: dict = D
 # -------------------------------
 # DELETE /api/events/{event_id}
 # -------------------------------
-@api_router.delete("/events/{event_id}")
+@app.delete("/events/{event_id}")
 async def delete_event(event_id: str, current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["_id"])
     result = await db.events.delete_one({"_id": ObjectId(event_id), "user_id": user_id})
