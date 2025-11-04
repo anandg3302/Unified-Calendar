@@ -34,7 +34,7 @@ export default function MicrosoftCalendarConnection({
       setIsLoading(true);
 
       // Get auth token
-      const token = await localStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       if (!token) {
         Alert.alert('Error', 'Please log in first');
         return;
@@ -83,7 +83,7 @@ export default function MicrosoftCalendarConnection({
           onPress: async () => {
             try {
               setIsLoading(true);
-              const token = await localStorage.getItem('auth_token');
+              const token = await localStorage.getItem('token');
               
               if (token) {
                 const success = await microsoftCalendarService.disconnectMicrosoft(token);

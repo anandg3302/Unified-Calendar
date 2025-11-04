@@ -72,7 +72,7 @@ class AppleCalendarService {
    * @returns {Promise<{Authorization: string, 'Content-Type': string}>} Headers
    */
   private async getAuthHeaders(): Promise<{Authorization: string, 'Content-Type': string}> {
-    const token = await localStorage.getItem('auth_token');
+    const token = await localStorage.getItem('token');
     
     if (!token) {
       throw new Error('No authentication token found');

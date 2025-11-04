@@ -144,7 +144,7 @@ class AppleAuthService {
    */
   private async validateWithBackend(appleUser: AppleUser): Promise<{success: boolean, error?: string}> {
     try {
-      const token = await localStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       
       if (!token) {
         return {
@@ -234,7 +234,7 @@ class AppleAuthService {
     calendars?: any[];
   }> {
     try {
-      const token = await localStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       
       if (!token) {
         return {
@@ -321,7 +321,7 @@ class AppleAuthService {
     dateRangeDays: number = 30
   ): Promise<{success: boolean, error?: string}> {
     try {
-      const token = await localStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       
       if (!token) {
         return {

@@ -126,7 +126,7 @@ if __name__ == "__main__":
         print("Usage: python create_test_events.py <auth_token>")
         print("\nTo get your auth token:")
         print("  1. Login to the app")
-        print("  2. Check browser/app storage for 'auth_token'")
+        print("  2. Check browser/app storage for 'token'")
         print("  3. Or check the backend logs after login")
         sys.exit(1)
     
