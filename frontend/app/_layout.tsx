@@ -16,6 +16,23 @@ export default function RootLayout() {
       link.rel = 'stylesheet';
       link.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&display=swap';
       document.head.appendChild(link);
+
+      // Handle Google OAuth redirect params on web
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const token = params.get('token');
+        const user = params.get('user');
+        if (token && user) {
+          try {
+            localStorage.setItem('token', token);
+            localStorage.setItem('user', user);
+          } catch (err) {
+            console.warn('Failed to save token:', err);
+          }
+          window.history.replaceState({}, document.title, '/');
+          window.location.reload();
+        }
+      } catch {}
     }
   }, []);
   return (
