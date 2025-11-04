@@ -790,8 +790,13 @@ async def _renew_google_channels_periodically():
 # Auth routes
 @app.post("/auth/register", response_model=Token)
 async def register(user_data: UserRegister):
+    try:
+        logging.info("📝 /auth/register payload received: %s", {"email": user_data.email, "name": user_data.name})
+    except Exception:
+        pass
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
+        logging.warning("⚠️ Register attempt for existing email: %s", user_data.email)
         raise HTTPException(status_code=400, detail="Email already registered")
     user_dict = {
         "email": user_data.email,
@@ -802,16 +807,25 @@ async def register(user_data: UserRegister):
     result = await db.users.insert_one(user_dict)
     user_id = str(result.inserted_id)
     access_token = create_access_token(data={"sub": user_id})
-    return {"access_token": access_token, "token_type": "bearer", "user": {"id": user_id, "email": user_data.email, "name": user_data.name}}
+    resp = {"access_token": access_token, "token_type": "bearer", "user": {"id": user_id, "email": user_data.email, "name": user_data.name}}
+    logging.info("✅ /auth/register success for %s", user_data.email)
+    return resp
 
 @app.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
+    try:
+        logging.info("🔐 /auth/login payload received: %s", {"email": user_data.email})
+    except Exception:
+        pass
     user = await db.users.find_one({"email": user_data.email})
     if not user or not verify_password(user_data.password, user["password_hash"]):
+        logging.warning("🚫 Login failed for email: %s", user_data.email)
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     user_id = str(user["_id"])
     access_token = create_access_token(data={"sub": user_id})
-    return {"access_token": access_token, "token_type": "bearer", "user": {"id": user_id, "email": user["email"], "name": user["name"]}}
+    resp = {"access_token": access_token, "token_type": "bearer", "user": {"id": user_id, "email": user["email"], "name": user["name"]}}
+    logging.info("✅ /auth/login success for %s", user_data.email)
+    return resp
 
 # ───────────────────────────────────────────────
 # Calendar Sources
@@ -1053,7 +1067,7 @@ origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

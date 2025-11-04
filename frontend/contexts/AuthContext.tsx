@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import localStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
@@ -107,15 +107,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } else {
           // If no promise (app opened from deep link), just set the auth state
           console.log('⚠️ No OAuth promise found, setting auth state directly');
-          await localStorage.setItem('token', accessToken);
-          await localStorage.setItem('user', JSON.stringify(userData));
+          if (Platform.OS === 'web') {
+            try {
+              window.localStorage.setItem('token', accessToken);
+              window.localStorage.setItem('user', JSON.stringify(userData));
+            } catch {}
+          } else {
+            await AsyncStorage.setItem('auth_token', accessToken);
+            await AsyncStorage.setItem('user', JSON.stringify(userData));
+          }
           setToken(accessToken);
           setUser(userData);
         }
 
         // Always update storage and state (in case promise already resolved)
-        await localStorage.setItem('token', accessToken);
-        await localStorage.setItem('user', JSON.stringify(userData));
+        if (Platform.OS === 'web') {
+          try {
+            window.localStorage.setItem('token', accessToken);
+            window.localStorage.setItem('user', JSON.stringify(userData));
+          } catch {}
+        } else {
+          await AsyncStorage.setItem('auth_token', accessToken);
+          await AsyncStorage.setItem('user', JSON.stringify(userData));
+        }
         setToken(accessToken);
         setUser(userData);
         console.log('✅ Auth state updated from deep link');
@@ -136,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Load token and user from localStorage on app start
+  // Load token and user on app start
   const loadStoredAuth = async () => {
     try {
       if (Platform.OS === 'web') {
@@ -158,8 +172,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Native: previously cleared auth on start; keep behavior
         setToken(null);
         setUser(null);
-        await localStorage.removeItem('token').catch(() => {});
-        await localStorage.removeItem('user').catch(() => {});
+        await AsyncStorage.removeItem('auth_token').catch(() => {});
+        await AsyncStorage.removeItem('user').catch(() => {});
       }
     } catch (error) {
       console.error('Error loading auth:', error);
@@ -173,11 +187,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Login with email and password
   const login = async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/login`, { email, password });
+      console.log('➡️ Login request:', { url: `${API_URL}/auth/login`, body: { email, password } });
+      const response = await axios.post(`${API_URL}/auth/login`, { email, password }, { headers: { 'Content-Type': 'application/json' } });
+      console.log('⬅️ Login response:', { status: response.status, data: response.data });
       const { access_token, user: userData } = response.data;
-
-      await localStorage.setItem('token', access_token);
-      await localStorage.setItem('user', JSON.stringify(userData));
+      if (Platform.OS === 'web') {
+        try {
+          window.localStorage.setItem('token', access_token);
+          window.localStorage.setItem('user', JSON.stringify(userData));
+        } catch {}
+      } else {
+        await AsyncStorage.setItem('auth_token', access_token);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+      }
 
       setToken(access_token);
       setUser(userData);
@@ -204,15 +226,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Register with email, password, and name
   const register = async (email: string, password: string, name: string) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/register`, { email, password, name },
-        {
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      const body = { name, email, password };
+      console.log('➡️ Register request:', { url: `${API_URL}/auth/register`, body });
+      const response = await axios.post(`${API_URL}/auth/register`, body, { headers: { 'Content-Type': 'application/json' } });
+      console.log('⬅️ Register response:', { status: response.status, data: response.data });
       const { access_token, user: userData } = response.data;
-
-      await localStorage.setItem('token', access_token);
-      await localStorage.setItem('user', JSON.stringify(userData));
+      if (Platform.OS === 'web') {
+        try {
+          window.localStorage.setItem('token', access_token);
+          window.localStorage.setItem('user', JSON.stringify(userData));
+        } catch {}
+      } else {
+        await AsyncStorage.setItem('auth_token', access_token);
+        await AsyncStorage.setItem('user', JSON.stringify(userData));
+      }
 
       setToken(access_token);
       setUser(userData);
@@ -267,7 +294,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Fetch Google events (used after successful auth)
   const fetchGoogleEvents = async () => {
-    const authToken = await localStorage.getItem('token');
+    const authToken = Platform.OS === 'web' ? (typeof window !== 'undefined' ? window.localStorage.getItem('token') : null) : await AsyncStorage.getItem('auth_token');
     if (!authToken) throw new Error('Not authenticated');
     try {
       const res = await axios.get(`${API_URL}/api/google/events`, {
