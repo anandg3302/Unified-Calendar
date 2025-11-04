@@ -5,6 +5,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 
 const API_URL =
@@ -138,16 +139,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Load token and user from AsyncStorage on app start
   const loadStoredAuth = async () => {
     try {
-      // Don't auto-load stored authentication data
-      // This ensures users always see the login page on app start
-      // Users will need to manually log in each time
-      setToken(null);
-      setUser(null);
-      
-      // Clear any stored auth tokens on app start
-      // This ensures a clean login experience
-      await AsyncStorage.removeItem('auth_token').catch(() => {});
-      await AsyncStorage.removeItem('user').catch(() => {});
+      if (Platform.OS === 'web') {
+        // Hydrate auth from localStorage on web (set by _layout.tsx after OAuth redirect)
+        const tokenFromWeb = typeof window !== 'undefined' ? window.localStorage.getItem('token') : null;
+        const userFromWeb = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
+        if (tokenFromWeb && userFromWeb) {
+          try {
+            const parsedUser = JSON.parse(userFromWeb);
+            setToken(tokenFromWeb);
+            setUser(parsedUser);
+            return;
+          } catch {}
+        }
+        // Fallback for web if nothing is stored
+        setToken(null);
+        setUser(null);
+      } else {
+        // Native: previously cleared auth on start; keep behavior
+        setToken(null);
+        setUser(null);
+        await AsyncStorage.removeItem('auth_token').catch(() => {});
+        await AsyncStorage.removeItem('user').catch(() => {});
+      }
     } catch (error) {
       console.error('Error loading auth:', error);
       setToken(null);
