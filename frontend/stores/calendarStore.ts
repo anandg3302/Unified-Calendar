@@ -206,7 +206,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   createEvent: async (eventData: any) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       
       await apiClient.post(`/api/events`, eventData, {
         headers: {
@@ -223,7 +223,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   updateEvent: async (eventId: string, eventData: any) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('token');
       
       await apiClient.put(`/api/events/${eventId}`, eventData, {
         headers: {
