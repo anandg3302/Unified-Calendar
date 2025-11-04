@@ -23,6 +23,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials as GoogleCredentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.errors import HttpError
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 import urllib.parse
 import json
@@ -1044,7 +1045,11 @@ async def delete_event(event_id: str, current_user: dict = Depends(get_current_u
 # Include Routers + Middleware
 app.include_router(api_router)
 
-# Apple Calendar routes will be imported at the end to avoid circular imports
+origins = [
+    "https://unified-calendar-one.vercel.app",  # ✅ your frontend on Vercel
+    "https://unified-calendar-zflg.onrender.com",  # ✅ your backend on Render
+    "http://localhost:5173",  # ✅ for local testing
+]
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
