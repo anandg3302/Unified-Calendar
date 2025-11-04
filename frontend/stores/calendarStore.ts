@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import localStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 
@@ -123,7 +123,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   fetchEvents: async () => {
     try {
       set({ isLoading: true });
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       const { selectedSources } = get();
       
       const response = await apiClient.get(`/api/events`, {
@@ -172,7 +172,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   fetchCalendarSources: async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       const response = await apiClient.get(`/api/calendar-sources`, {
         headers: {
@@ -248,7 +248,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   deleteEvent: async (eventId: string) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.delete(`/api/events/${eventId}`, {
         headers: {
@@ -265,7 +265,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   respondToInvite: async (eventId: string, status: string) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.patch(`/api/events/${eventId}/respond`, 
         { status },
@@ -286,7 +286,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   // Apple Calendar methods
   connectAppleCalendar: async (credentials: {appleId: string, appSpecificPassword: string}) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       const response = await apiClient.post('/api/apple/calendar/connect', credentials, {
         headers: {
@@ -309,7 +309,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   syncAppleEvents: async () => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.post('/api/apple/calendar/sync', {
         sync_direction: 'from_apple',
@@ -329,7 +329,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   createAppleEvent: async (eventData: any) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.post('/api/apple/calendar/events', eventData, {
         headers: {
@@ -346,7 +346,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   updateAppleEvent: async (eventId: string, eventData: any) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.put(`/api/apple/calendar/events/${eventId}`, eventData, {
         headers: {
@@ -363,7 +363,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   deleteAppleEvent: async (eventId: string) => {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       await apiClient.delete(`/api/apple/calendar/events/${eventId}`, {
         headers: {

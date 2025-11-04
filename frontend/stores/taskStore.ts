@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import localStorage from '@react-native-async-storage/async-storage';
 
 export interface TaskItem {
   id: string;
@@ -25,7 +25,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   load: async () => {
     try {
       set({ isLoading: true });
-      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const raw = await localStorage.getItem(STORAGE_KEY);
       if (raw) set({ tasks: JSON.parse(raw) });
     } finally {
       set({ isLoading: false });
@@ -40,17 +40,17 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     };
     const next = [newTask, ...get().tasks];
     set({ tasks: next });
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    await localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   },
   toggle: async (id: string) => {
     const next = get().tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t);
     set({ tasks: next });
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    await localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   },
   remove: async (id: string) => {
     const next = get().tasks.filter(t => t.id !== id);
     set({ tasks: next });
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    await localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   }
 }));
 

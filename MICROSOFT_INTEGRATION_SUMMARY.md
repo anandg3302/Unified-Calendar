@@ -245,7 +245,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8000/api/events
 ### Mobile App Integration
 - Uses `expo-linking` for OAuth callback
 - Deep link handling for authentication
-- Token storage with AsyncStorage
+- Token storage with localStorage
 - Automatic token refresh
 
 ## 📊 Data Model

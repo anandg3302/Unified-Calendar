@@ -14,7 +14,7 @@
  */
 
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import localStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 
 // Types for Apple Calendar operations
@@ -72,7 +72,7 @@ class AppleCalendarService {
    * @returns {Promise<{Authorization: string, 'Content-Type': string}>} Headers
    */
   private async getAuthHeaders(): Promise<{Authorization: string, 'Content-Type': string}> {
-    const token = await AsyncStorage.getItem('auth_token');
+    const token = await localStorage.getItem('auth_token');
     
     if (!token) {
       throw new Error('No authentication token found');

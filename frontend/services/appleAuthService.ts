@@ -15,7 +15,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { Platform, Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import localStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Constants from 'expo-constants';
 
@@ -144,7 +144,7 @@ class AppleAuthService {
    */
   private async validateWithBackend(appleUser: AppleUser): Promise<{success: boolean, error?: string}> {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       if (!token) {
         return {
@@ -192,7 +192,7 @@ class AppleAuthService {
    */
   private async storeAppleUserData(appleUser: AppleUser): Promise<void> {
     try {
-      await AsyncStorage.setItem('apple_user_data', JSON.stringify(appleUser));
+      await localStorage.setItem('apple_user_data', JSON.stringify(appleUser));
     } catch (error) {
       console.error('Error storing Apple user data:', error);
     }
@@ -204,7 +204,7 @@ class AppleAuthService {
    */
   async getStoredAppleUserData(): Promise<AppleUser | null> {
     try {
-      const storedData = await AsyncStorage.getItem('apple_user_data');
+      const storedData = await localStorage.getItem('apple_user_data');
       return storedData ? JSON.parse(storedData) : null;
     } catch (error) {
       console.error('Error retrieving Apple user data:', error);
@@ -217,7 +217,7 @@ class AppleAuthService {
    */
   async clearAppleUserData(): Promise<void> {
     try {
-      await AsyncStorage.removeItem('apple_user_data');
+      await localStorage.removeItem('apple_user_data');
     } catch (error) {
       console.error('Error clearing Apple user data:', error);
     }
@@ -234,7 +234,7 @@ class AppleAuthService {
     calendars?: any[];
   }> {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       if (!token) {
         return {
@@ -321,7 +321,7 @@ class AppleAuthService {
     dateRangeDays: number = 30
   ): Promise<{success: boolean, error?: string}> {
     try {
-      const token = await AsyncStorage.getItem('auth_token');
+      const token = await localStorage.getItem('auth_token');
       
       if (!token) {
         return {
