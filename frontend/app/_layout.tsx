@@ -1,11 +1,11 @@
 // These imports must be first to initialize gesture handler and reanimated correctly
 import 'react-native-gesture-handler';
 import 'react-native-reanimated';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { AuthProvider } from '../contexts/AuthContext';
+import { AuthProvider, useAuth } from '../contexts/AuthContext';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -38,37 +38,59 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }} className="bg-gradient-to-br from-orange-50 to-orange-100">
       <AuthProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="(auth)/login" />
-          <Stack.Screen name="(auth)/register" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen 
-            name="event-details" 
-            options={{ 
-              headerShown: true, 
-              title: 'Event Details',
-              presentation: 'modal'
-            }} 
-          />
-          <Stack.Screen 
-            name="create-event" 
-            options={{ 
-              headerShown: true, 
-              title: 'Create Event',
-              presentation: 'modal'
-            }} 
-          />
-          <Stack.Screen 
-            name="edit-event" 
-            options={{ 
-              headerShown: true, 
-              title: 'Edit Event',
-              presentation: 'modal'
-            }} 
-          />
-        </Stack>
+        <AuthGate>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(auth)/login" />
+            <Stack.Screen name="(auth)/register" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen 
+              name="event-details" 
+              options={{ 
+                headerShown: true, 
+                title: 'Event Details',
+                presentation: 'modal'
+              }} 
+            />
+            <Stack.Screen 
+              name="create-event" 
+              options={{ 
+                headerShown: true, 
+                title: 'Create Event',
+                presentation: 'modal'
+              }} 
+            />
+            <Stack.Screen 
+              name="edit-event" 
+              options={{ 
+                headerShown: true, 
+                title: 'Edit Event',
+                presentation: 'modal'
+              }} 
+            />
+          </Stack>
+        </AuthGate>
       </AuthProvider>
     </GestureHandlerRootView>
   );
+}
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+    const inAuthGroup = segments[0] === '(auth)';
+
+    if (!user && !inAuthGroup) {
+      router.replace('/(auth)/login');
+    } else if (user && inAuthGroup) {
+      router.replace('/(tabs)/home');
+    }
+  }, [user, isLoading, segments]);
+
+  if (isLoading) return null;
+  return <>{children}</>;
 }

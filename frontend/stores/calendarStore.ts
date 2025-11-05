@@ -126,7 +126,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       const token = await localStorage.getItem('token');
       const { selectedSources } = get();
       
-      const response = await apiClient.get(`/api/events`, {
+      const response = await apiClient.get(`/events`, {
         params: {
           calendar_sources: selectedSources.join(',')
         },
@@ -208,7 +208,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     try {
       const token = await localStorage.getItem('token');
       
-      await apiClient.post(`/api/events`, eventData, {
+      await apiClient.post(`/events`, eventData, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -225,7 +225,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     try {
       const token = await localStorage.getItem('token');
       
-      await apiClient.put(`/api/events/${eventId}`, eventData, {
+      await apiClient.put(`/events/${eventId}`, eventData, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -250,7 +250,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     try {
       const token = await localStorage.getItem('token');
       
-      await apiClient.delete(`/api/events/${eventId}`, {
+      await apiClient.delete(`/events/${eventId}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
@@ -267,7 +267,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     try {
       const token = await localStorage.getItem('token');
       
-      await apiClient.patch(`/api/events/${eventId}/respond`, 
+      await apiClient.patch(`/events/${eventId}/respond`, 
         { status },
         {
           headers: {
