@@ -247,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Let the index.tsx handle navigation based on auth state
     } catch (error: any) {
       console.log('❌ Register error:', {
-        url: `${API_URL}/api/auth/register`,
+        url: `${API_URL}/auth/register`,
         status: error?.response?.status,
         data: error?.response?.data,
         message: error?.message,

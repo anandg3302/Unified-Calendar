@@ -53,9 +53,8 @@ export default function Register() {
     setIsLoading(true);
     try {
       await register(email, password, name);
-      Alert.alert('Success', 'Account created! Please sign in.', [
-        { text: 'OK', onPress: () => router.replace('/(auth)/login') }
-      ]);
+      router.replace('/(auth)/login')
+      
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message || 'Something went wrong');
     } finally {
