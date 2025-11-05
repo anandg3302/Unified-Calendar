@@ -1060,8 +1060,7 @@ async def delete_event(event_id: str, current_user: dict = Depends(get_current_u
 app.include_router(api_router)
 
 origins = [
-    "https://unified-calendar-one.vercel.app", 
-    "https://unified-calendar-anands-projects-359312e3.vercel.app"
+    "https://unified-calendar-4dqh.vercel.app",
     "https://unified-calendar-zflg.onrender.com",
     "http://localhost:8081",
 ]
