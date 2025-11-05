@@ -8,7 +8,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request,
 from fastapi.requests import Request as FastAPIRequest
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import RedirectResponse, JSONResponse
-from starlette.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
 from pathlib import Path
@@ -23,7 +23,6 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials as GoogleCredentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.errors import HttpError
-from fastapi.middleware.cors import CORSMiddleware
 import logging
 import urllib.parse
 import json
@@ -552,12 +551,73 @@ class WatchRequest(BaseModel):
     token: Optional[str] = None  # Opaque token to verify notifications
 
 
-@app.post("/google/watch")
+@app.post("/google/watch", status_code=status.HTTP_201_CREATED)
 async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
-    """Create a Google Calendar watch channel for push notifications."""
+    """
+    Create a Google Calendar watch channel for push notifications.
+    
+    This endpoint creates a watch channel that Google Calendar will use to send
+    push notifications when events are created, updated, or deleted.
+    
+    Returns:
+        - 201 Created: Watch channel created successfully
+        - 400 Bad Request: Invalid request or Google account not connected
+        - 401 Unauthorized: Invalid or missing authentication token
+        - 409 Conflict: Watch channel already exists for this user
+        - 500 Internal Server Error: Failed to create watch channel
+    """
     try:
         user_id = str(current_user["_id"])
-        logging.info("📡 Setting up Google watch channel for user %s", user_id)
+        user_email = current_user.get("email", "unknown")
+        user_name = current_user.get("name", "User")
+        
+        logging.info("📡 Setting up Google watch channel for user %s (%s - %s)", user_id, user_email, user_name)
+        logging.info("📡 Webhook URL: %s", body.webhook_url)
+        
+        # Check if user already has an active watch channel
+        existing_channel = await db.google_watch_channels.find_one({"user_id": user_id})
+        if existing_channel:
+            expiration = existing_channel.get("expiration")
+            if expiration:
+                try:
+                    # Parse expiration - Google returns ISO format string
+                    if isinstance(expiration, str):
+                        # Remove timezone info if present (e.g., "2024-01-01T00:00:00.000Z" -> "2024-01-01T00:00:00")
+                        exp_str = expiration.replace('Z', '').split('+')[0].split('.')[0]
+                        # Try to parse as ISO format
+                        try:
+                            exp_date = datetime.fromisoformat(exp_str)
+                        except ValueError:
+                            # Fallback: try parsing common formats
+                            from datetime import datetime as dt
+                            exp_date = dt.strptime(exp_str, "%Y-%m-%dT%H:%M:%S")
+                    else:
+                        exp_date = expiration
+                    
+                    if exp_date > datetime.utcnow():
+                        logging.warning("⚠️ User %s already has active watch channel (expires: %s)", user_id, expiration)
+                        return JSONResponse(
+                            status_code=status.HTTP_409_CONFLICT,
+                            content={
+                                "status": "conflict",
+                                "message": "Watch channel already exists for this user",
+                                "channel_id": existing_channel.get("channel_id"),
+                                "resource_id": existing_channel.get("resource_id"),
+                                "expiration": expiration,
+                                "user_id": user_id
+                            }
+                        )
+                except Exception as parse_error:
+                    logging.warning("⚠️ Could not parse expiration date: %s", str(parse_error))
+                    # Continue to create new channel if expiration parsing fails
+        
+        # Verify Google account is connected
+        if not current_user.get("google_refresh_token"):
+            logging.error("❌ Google account not connected for user %s", user_id)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Google account not connected. Please connect your Google account first."
+            )
         
         service = _get_calendar_service_from_refresh_token(current_user)
         channel_id = str(uuid.uuid4())
@@ -569,7 +629,7 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         if body.token:
             request_body["token"] = body.token
         
-        logging.info("📡 Creating watch channel with webhook URL: %s", body.webhook_url)
+        logging.info("📡 Creating watch channel with channel_id: %s", channel_id)
         
         # Exponential backoff on creating the watch channel
         max_attempts = 5
@@ -581,6 +641,15 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
                 watch = service.events().watch(calendarId="primary", body=request_body).execute()
                 logging.info("✅ Successfully created watch channel on attempt %d", attempt + 1)
                 break
+            except HttpError as e:
+                last_exc = e
+                error_details = json.loads(e.content.decode('utf-8')) if e.content else {}
+                error_reason = error_details.get('error', {}).get('message', str(e))
+                logging.warning("⚠️ Watch channel creation attempt %d failed (HTTP %d): %s", 
+                              attempt + 1, e.resp.status, error_reason)
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 30)
             except Exception as e:
                 last_exc = e
                 logging.warning("⚠️ Watch channel creation attempt %d failed: %s", attempt + 1, str(e))
@@ -589,7 +658,14 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
                     delay = min(delay * 2, 30)
         
         if watch is None:
-            raise last_exc or Exception("Failed to create Google watch channel")
+            error_msg = "Failed to create Google watch channel after {} attempts".format(max_attempts)
+            if last_exc:
+                error_msg += ": {}".format(str(last_exc))
+            logging.error("❌ %s", error_msg)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=error_msg
+            )
         
         # Persist channel metadata for stop/renew later
         channel_doc = {
@@ -603,18 +679,35 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         }
         await db.google_watch_channels.insert_one(channel_doc)
         
-        logging.info("✅ Created Google watch channel %s for user %s (resource_id: %s, expires: %s)", 
-                     watch.get("id"), user_id, watch.get("resourceId"), watch.get("expiration"))
-        return {
-            "watch": watch,
-            "channel_id": watch.get("id"),
-            "resource_id": watch.get("resourceId"),
-            "expiration": watch.get("expiration"),
-            "message": "Watch channel created successfully"
-        }
+        logging.info("✅ Created Google watch channel %s for user %s (%s)", 
+                     watch.get("id"), user_id, user_email)
+        logging.info("   📋 Resource ID: %s", watch.get("resourceId"))
+        logging.info("   ⏰ Expires: %s", watch.get("expiration"))
+        logging.info("   🌐 Webhook URL: %s", body.webhook_url)
+        
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={
+                "status": "success",
+                "message": "Watch channel created successfully",
+                "watch": watch,
+                "channel_id": watch.get("id"),
+                "resource_id": watch.get("resourceId"),
+                "expiration": watch.get("expiration"),
+                "webhook_url": body.webhook_url,
+                "user_id": user_id,
+                "user_email": user_email
+            }
+        )
+    except HTTPException:
+        raise
     except Exception as e:
-        logging.error("❌ Error creating Google watch: %s", str(e))
-        raise HTTPException(status_code=500, detail="Failed to create Google watch channel")
+        logging.error("❌ Error creating Google watch channel for user %s: %s", 
+                     current_user.get("email", "unknown"), str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create Google watch channel: {str(e)}"
+        )
 
 
 async def _build_google_service_for_user_id(user_id: str):
