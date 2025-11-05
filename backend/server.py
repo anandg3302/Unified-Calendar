@@ -1063,7 +1063,7 @@ origins = [
     "https://unified-calendar-one.vercel.app", 
     "https://unified-calendar-anands-projects-359312e3.vercel.app"
     "https://unified-calendar-zflg.onrender.com",
-    "http://localhost:5173",
+    "http://localhost:8081",
 ]
 app.add_middleware(
     CORSMiddleware,
