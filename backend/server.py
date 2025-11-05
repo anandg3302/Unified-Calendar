@@ -1061,9 +1061,8 @@ app.include_router(api_router)
 
 origins = [
     "https://unified-calendar-one.vercel.app", 
-    "https://unified-calendar-git-main-anands-projects-359312e3.vercel.app",  # preview 1
-    "https://unified-calendar-fd7jh7yw9-anands-projects-359312e3.vercel.app",  # preview 2
-    "http://localhost:5173", ✅ for local testing
+    "https://unified-calendar-zflg.onrender.com",
+    "http://localhost:5173",
 ]
 app.add_middleware(
     CORSMiddleware,
