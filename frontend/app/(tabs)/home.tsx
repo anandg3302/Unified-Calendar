@@ -50,8 +50,8 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchEvents();
     loadTasks();
-    // Start automatic polling for real-time updates (every 30 seconds)
-    startPolling(30);
+    // Start automatic polling for real-time updates (every 5 minutes - webhooks provide instant updates)
+    startPolling(); // Uses default 300 seconds (5 minutes)
     
     // Cleanup: stop polling when component unmounts
     return () => {

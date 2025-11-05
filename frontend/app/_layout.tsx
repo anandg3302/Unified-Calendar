@@ -68,6 +68,22 @@ export default function RootLayout() {
                 presentation: 'modal'
               }} 
             />
+            <Stack.Screen 
+              name="delete-event" 
+              options={{ 
+                headerShown: true, 
+                title: 'Delete Event',
+                presentation: 'modal'
+              }} 
+            />
+            <Stack.Screen 
+              name="logout" 
+              options={{ 
+                headerShown: true, 
+                title: 'Log Out',
+                presentation: 'modal'
+              }} 
+            />
           </Stack>
         </AuthGate>
       </AuthProvider>

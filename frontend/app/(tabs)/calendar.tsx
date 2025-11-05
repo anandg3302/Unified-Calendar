@@ -33,9 +33,9 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     fetchEvents();
-    // Start automatic polling for real-time updates
+    // Start automatic polling for real-time updates (every 5 minutes - webhooks provide instant updates)
     const { startPolling, stopPolling } = useCalendarStore.getState();
-    startPolling(30);
+    startPolling(); // Uses default 300 seconds (5 minutes)
     
     return () => {
       stopPolling();

@@ -101,6 +101,7 @@ interface CalendarState {
   respondToInvite: (eventId: string, status: string) => Promise<void>;
   startPolling: (intervalSeconds?: number) => void;
   stopPolling: () => void;
+  setupGoogleWatch: () => Promise<void>;
   // Apple Calendar methods
   connectAppleCalendar: (credentials: {appleId: string, appSpecificPassword: string}) => Promise<boolean>;
   syncAppleEvents: () => Promise<void>;
@@ -250,15 +251,36 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     try {
       const token = await localStorage.getItem('token');
       
-      await apiClient.delete(`/events/${eventId}`, {
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+      
+      const response = await apiClient.delete(`/events/${eventId}`, {
         headers: {
           Authorization: `Bearer ${token}`
         }
       });
       
+      // Refresh events list after successful deletion
       await get().fetchEvents();
-    } catch (error) {
+      
+      return response.data;
+    } catch (error: any) {
       console.error('Error deleting event:', error);
+      
+      // Provide more specific error messages
+      if (error.response?.status === 404) {
+        throw new Error('Event not found. It may have already been deleted.');
+      } else if (error.response?.status === 401) {
+        throw new Error('Authentication required. Please log in again.');
+      } else if (error.response?.status === 403) {
+        throw new Error('You do not have permission to delete this event.');
+      } else if (error.response?.status >= 500) {
+        throw new Error('Server error. Please try again later.');
+      } else if (error.request) {
+        throw new Error('Network error. Please check your connection.');
+      }
+      
       throw error;
     }
   },
@@ -378,7 +400,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     }
   },
 
-  startPolling: (intervalSeconds: number = 30) => {
+  startPolling: (intervalSeconds: number = 300) => {
     const { pollingInterval, isPolling } = get();
     
     // Don't start if already polling
@@ -410,16 +432,67 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
     });
   },
 
-  stopPolling: () => {
-    const { pollingInterval } = get();
-    
-    if (pollingInterval) {
-      console.log('Stopping event polling');
-      clearInterval(pollingInterval);
-      set({ 
-        pollingInterval: null, 
-        isPolling: false 
+  setupGoogleWatch: async () => {
+    try {
+      const token = await localStorage.getItem('token');
+      
+      if (!token) {
+        console.warn('❌ Watch setup failed: No authentication token');
+        return;
+      }
+      
+      // Get the backend URL for webhook
+      const webhookUrl = `${API_URL}/google/notify`;
+      
+      console.log('📡 Setting up Google Calendar watch channel...');
+      console.log('📡 Webhook URL:', webhookUrl);
+      
+      const response = await apiClient.post('/google/watch', {
+        webhook_url: webhookUrl
+      }, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
       });
+      
+      console.log('✅ Watch setup successful');
+      console.log('✅ Channel ID:', response.data?.channel_id || response.data?.watch?.id);
+      console.log('✅ Resource ID:', response.data?.resource_id || response.data?.watch?.resourceId);
+      console.log('✅ Expiration:', response.data?.expiration || response.data?.watch?.expiration);
+    } catch (error: any) {
+      console.error('❌ Watch setup failed:', error?.response?.data || error?.message || error);
+      if (error?.response?.status === 401) {
+        console.error('❌ Authentication failed - token may be invalid');
+      } else if (error?.response?.status === 400) {
+        console.error('❌ Bad request - check webhook URL format');
+      } else if (error?.response?.status === 500) {
+        console.error('❌ Server error - check backend logs');
+      }
+      // Don't throw - allow polling to continue as fallback
+    }
+  },
+
+  stopPolling: () => {
+    try {
+      const { pollingInterval } = get();
+      
+      if (pollingInterval) {
+        console.log('Stopping event polling');
+        clearInterval(pollingInterval);
+        // Use setTimeout to ensure state update happens safely
+        setTimeout(() => {
+          try {
+            set({ 
+              pollingInterval: null, 
+              isPolling: false 
+            });
+          } catch (setError) {
+            console.warn('Error updating polling state:', setError);
+          }
+        }, 0);
+      }
+    } catch (error) {
+      console.warn('Error in stopPolling:', error);
     }
   }
 }));

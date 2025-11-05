@@ -24,6 +24,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   content: {
+    flex: 1,
+  },
+  contentContainer: {
     flexGrow: 1,
   },
   field: {
@@ -149,7 +152,10 @@ export default function EditEventScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+      >
         {/* Title */}
         <View style={styles.field}>
           <Text style={styles.label}>Title *</Text>

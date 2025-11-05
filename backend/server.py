@@ -291,6 +291,75 @@ async def google_callback(request: Request):
         # Generate JWT
         access_token = create_access_token(data={"sub": user_id})
 
+        # Automatically setup Google Calendar watch channel for real-time sync
+        try:
+            # Get the backend URL for webhook
+            backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
+            webhook_url = f"{backend_url}/google/notify"
+            
+            # Fetch the updated user to get full user object
+            updated_user = await db.users.find_one({"_id": ObjectId(user_id)})
+            if updated_user and updated_user.get("google_refresh_token"):
+                # Check if user already has an active watch channel
+                existing_channel = await db.google_watch_channels.find_one({"user_id": user_id})
+                if existing_channel:
+                    logging.info(f"ℹ️ User {user_id} already has watch channel, skipping duplicate setup")
+                else:
+                    # Build Google Calendar service using the refresh token
+                    stored_scopes = updated_user.get("google_scopes", SCOPES)
+                    creds = GoogleCredentials(
+                        None,
+                        refresh_token=updated_user.get("google_refresh_token"),
+                        client_id=GOOGLE_CLIENT_ID,
+                        client_secret=GOOGLE_CLIENT_SECRET,
+                        token_uri="https://oauth2.googleapis.com/token",
+                        scopes=stored_scopes
+                    )
+                    # Refresh token to get access token
+                    creds.refresh(GoogleRequest())
+                    service = build("calendar", "v3", credentials=creds)
+                    
+                    # Create watch channel
+                    channel_id = str(uuid.uuid4())
+                    request_body = {
+                        "id": channel_id,
+                        "type": "web_hook",
+                        "address": webhook_url,
+                    }
+                    
+                    # Exponential backoff on creating the watch channel
+                    max_attempts = 5
+                    delay = 1
+                    last_exc = None
+                    watch = None
+                    for _ in range(max_attempts):
+                        try:
+                            watch = service.events().watch(calendarId="primary", body=request_body).execute()
+                            break
+                        except Exception as e:
+                            last_exc = e
+                            await asyncio.sleep(delay)
+                            delay = min(delay * 2, 30)
+                    
+                    if watch:
+                        # Persist channel metadata for stop/renew later
+                        await db.google_watch_channels.insert_one({
+                            "user_id": user_id,
+                            "channel_id": watch.get("id"),
+                            "resource_id": watch.get("resourceId"),
+                            "expiration": watch.get("expiration"),
+                            "address": webhook_url,
+                            "token": None,
+                            "created_at": datetime.utcnow(),
+                        })
+                        logging.info(f"✅ Auto-setup watch channel for user {user_id}")
+                    else:
+                        raise last_exc or Exception("Failed to create Google watch channel")
+            else:
+                logging.warning(f"⚠️ User {user_id} missing google_refresh_token, skipping watch setup")
+        except Exception as e:
+            logging.warning(f"⚠️ Failed to setup watch channel for user {user_id} (fallback to polling): {e}")
+
         # Build redirect URL for frontend
         # Decode and parse state to extract the frontend redirect URI
         try:
@@ -487,6 +556,9 @@ class WatchRequest(BaseModel):
 async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
     """Create a Google Calendar watch channel for push notifications."""
     try:
+        user_id = str(current_user["_id"])
+        logging.info("📡 Setting up Google watch channel for user %s", user_id)
+        
         service = _get_calendar_service_from_refresh_token(current_user)
         channel_id = str(uuid.uuid4())
         request_body = {
@@ -496,35 +568,52 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         }
         if body.token:
             request_body["token"] = body.token
+        
+        logging.info("📡 Creating watch channel with webhook URL: %s", body.webhook_url)
+        
         # Exponential backoff on creating the watch channel
         max_attempts = 5
         delay = 1
         last_exc = None
         watch = None
-        for _ in range(max_attempts):
+        for attempt in range(max_attempts):
             try:
                 watch = service.events().watch(calendarId="primary", body=request_body).execute()
+                logging.info("✅ Successfully created watch channel on attempt %d", attempt + 1)
                 break
             except Exception as e:
                 last_exc = e
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 30)
+                logging.warning("⚠️ Watch channel creation attempt %d failed: %s", attempt + 1, str(e))
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 30)
+        
         if watch is None:
             raise last_exc or Exception("Failed to create Google watch channel")
+        
         # Persist channel metadata for stop/renew later
-        await db.google_watch_channels.insert_one({
-            "user_id": str(current_user["_id"]),
+        channel_doc = {
+            "user_id": user_id,
             "channel_id": watch.get("id"),
             "resource_id": watch.get("resourceId"),
             "expiration": watch.get("expiration"),
             "address": body.webhook_url,
             "token": body.token,
             "created_at": datetime.utcnow(),
-        })
-        logging.info("✅ Created Google watch channel %s", watch.get("id"))
-        return {"watch": watch}
+        }
+        await db.google_watch_channels.insert_one(channel_doc)
+        
+        logging.info("✅ Created Google watch channel %s for user %s (resource_id: %s, expires: %s)", 
+                     watch.get("id"), user_id, watch.get("resourceId"), watch.get("expiration"))
+        return {
+            "watch": watch,
+            "channel_id": watch.get("id"),
+            "resource_id": watch.get("resourceId"),
+            "expiration": watch.get("expiration"),
+            "message": "Watch channel created successfully"
+        }
     except Exception as e:
-        logging.error("Error creating Google watch: %s", str(e))
+        logging.error("❌ Error creating Google watch: %s", str(e))
         raise HTTPException(status_code=500, detail="Failed to create Google watch channel")
 
 
@@ -665,16 +754,36 @@ async def google_notify(request: Request, background_tasks: BackgroundTasks):
     logging.info(
         "📬 Google notify: channel=%s resource=%s state=%s", channel_id, resource_id, resource_state
     )
+    
+    # Google sends an initial sync notification when channel is created
+    # We should handle this but not trigger sync for it
+    if resource_state == "sync":
+        logging.info("🔄 Received sync notification (channel creation), skipping sync")
+        return {"status": "ok", "message": "sync_notification"}
+    
     if not channel_id or not resource_id:
-        return {"status": "ignored"}
+        logging.warning("⚠️ Google notify missing required headers")
+        return {"status": "ignored", "reason": "missing_headers"}
+    
     # Lookup which user this resource belongs to
     channel = await db.google_watch_channels.find_one({
         "channel_id": channel_id,
         "resource_id": resource_id,
     })
-    if channel and channel.get("user_id"):
-        background_tasks.add_task(_perform_google_incremental_sync, channel["user_id"])
-    return {"status": "ok"}
+    
+    if not channel:
+        logging.warning("⚠️ Google notify: channel not found for channel_id=%s resource_id=%s", channel_id, resource_id)
+        return {"status": "ignored", "reason": "channel_not_found"}
+    
+    if not channel.get("user_id"):
+        logging.warning("⚠️ Google notify: channel missing user_id")
+        return {"status": "ignored", "reason": "missing_user_id"}
+    
+    # Trigger incremental sync in background
+    user_id = channel["user_id"]
+    logging.info("🔄 Triggering incremental sync for user %s", user_id)
+    background_tasks.add_task(_perform_google_incremental_sync, user_id)
+    return {"status": "ok", "user_id": user_id}
 
 
 async def perform_google_incremental_sync(headers: dict):

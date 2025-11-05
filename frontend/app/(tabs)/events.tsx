@@ -49,7 +49,7 @@ export default function EventsScreen() {
   useEffect(() => {
     fetchEvents();
     const { startPolling, stopPolling } = useCalendarStore.getState();
-    startPolling(30);
+    startPolling(); // Uses default 300 seconds (5 minutes) - webhooks provide real-time updates
     
     return () => {
       stopPolling();
@@ -500,7 +500,10 @@ export default function EventsScreen() {
                                 <View style={styles.cardActions}>
                                   <TouchableOpacity
                                     onPress={(e) => {
-                                      e.stopPropagation();
+                                      try { /* React Native events usually don't support stopPropagation */
+                                        // @ts-ignore
+                                        if (typeof e?.stopPropagation === 'function') e.stopPropagation();
+                                      } catch {}
                                       router.push(`/edit-event?id=${event.id}`);
                                     }}
                                     style={styles.actionButton}
@@ -511,21 +514,8 @@ export default function EventsScreen() {
                                     </BlurView>
                                   </TouchableOpacity>
                                   <TouchableOpacity
-                                    onPress={(e) => {
-                                      e.stopPropagation();
-                                      RNAlert.alert('Delete Event', 'Are you sure?', [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                          text: 'Delete', 
-                                          style: 'destructive', 
-                                          onPress: async () => {
-                                            try {
-                                              await useCalendarStore.getState().deleteEvent(event.id);
-                                              setSnackbar({ visible: true, message: 'Deleted! ✨' });
-                                            } catch { }
-                                          }
-                                        }
-                                      ]);
+                                    onPress={() => {
+                                      router.push(`/delete-event?id=${event.id}`);
                                     }}
                                     style={[styles.actionButton, { marginLeft: 8 }]}
                                     activeOpacity={0.7}
@@ -636,9 +626,10 @@ const styles = StyleSheet.create({
   },
   // Filter Styles
   filtersContainer: {
-    paddingVertical: 16,
+    flex: 0,
   },
   filtersContent: {
+    paddingVertical: 16,
     paddingHorizontal: 20,
     paddingRight: 20,
   },

@@ -6,7 +6,8 @@ import {
   TextInput,
   Pressable,
   Alert,
-  TouchableOpacity
+  TouchableOpacity,
+  ActivityIndicator
 } from 'react-native';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,7 +22,7 @@ const MUTED = '#EAEAEA99';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   const [name, setName] = useState(user?.name || 'Anand Gupta');
   const [email, setEmail] = useState(user?.email || 'user@example.com');
@@ -33,17 +34,7 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-          router.replace('/(auth)/login');
-        }
-      }
-    ]);
+    router.push('/logout');
   };
 
   return (
@@ -109,7 +100,10 @@ export default function ProfileScreen() {
           <Text style={styles.primaryText}>Save Changes</Text>
         </Pressable>
 
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <TouchableOpacity 
+          style={styles.logoutBtn} 
+          onPress={handleLogout}
+        >
           <Ionicons name="log-out-outline" size={18} color="#F87171" />
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>

@@ -6,6 +6,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { useCalendarStore } from '../stores/calendarStore';
 
 
 const API_URL =
@@ -133,6 +134,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setToken(accessToken);
         setUser(userData);
         console.log('✅ Auth state updated from deep link');
+        
+        // Setup Google Calendar watch channel for real-time sync
+        try {
+          await useCalendarStore.getState().setupGoogleWatch();
+        } catch (e) {
+          console.log('Watch setup skipped (deep link):', (e as any)?.message || e);
+        }
+        
         // Let the index.tsx handle navigation based on auth state
         // This ensures proper navigation flow
       } catch (error: any) {
@@ -280,6 +289,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setToken(accessToken);
       setUser(userData);
       alert('✅ Google login successful!');
+      
+      // Setup Google Calendar watch channel for real-time sync
+      try {
+        await useCalendarStore.getState().setupGoogleWatch();
+      } catch (e) {
+        console.log('Watch setup skipped:', (e as any)?.message || e);
+      }
+      
       // Load Google events immediately
       try {
         await fetchGoogleEvents();
