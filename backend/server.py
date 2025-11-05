@@ -1061,7 +1061,7 @@ app.include_router(api_router)
 
 origins = [
     "https://unified-calendar-one.vercel.app",  # ✅ your frontend on Vercel
-    "https://unified-calendar-zflg.onrender.com",  # ✅ your backend on Render
+    "https://unified-calendar-git-main-anands-projects-359312e3.vercel.app",  # ✅ your backend on Render
     "http://localhost:5173",  # ✅ for local testing
 ]
 app.add_middleware(
