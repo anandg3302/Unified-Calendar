@@ -1060,9 +1060,10 @@ async def delete_event(event_id: str, current_user: dict = Depends(get_current_u
 app.include_router(api_router)
 
 origins = [
-    "https://unified-calendar-one.vercel.app",  # ✅ your frontend on Vercel
-    "https://unified-calendar-git-main-anands-projects-359312e3.vercel.app",  # ✅ your backend on Render
-    "http://localhost:5173",  # ✅ for local testing
+    "https://unified-calendar-one.vercel.app", 
+    "https://unified-calendar-git-main-anands-projects-359312e3.vercel.app",  # preview 1
+    "https://unified-calendar-fd7jh7yw9-anands-projects-359312e3.vercel.app",  # preview 2
+    "http://localhost:5173", ✅ for local testing
 ]
 app.add_middleware(
     CORSMiddleware,
