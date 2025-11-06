@@ -90,6 +90,7 @@ interface CalendarState {
   appleConnected: boolean;
   pollingInterval: NodeJS.Timeout | null;
   isPolling: boolean;
+  lastSynced: number;
   fetchEvents: () => Promise<void>;
   fetchCalendarSources: () => Promise<void>;
   toggleSource: (sourceId: string) => void;
@@ -120,6 +121,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   appleConnected: false,
   pollingInterval: null,
   isPolling: false,
+  lastSynced: Date.now(),
 
   fetchEvents: async () => {
     try {
@@ -165,7 +167,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       // Check if Apple Calendar is connected
       const appleConnected = apple_events.length > 0 || response.data.apple_connected === true;
       
-      set({ events: allEvents, isLoading: false, appleConnected });
+      set({ events: allEvents, isLoading: false, appleConnected, lastSynced: Date.now() });
     } catch (error) {
       console.error('Error fetching events:', error);
       set({ isLoading: false });

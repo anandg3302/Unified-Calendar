@@ -23,7 +23,7 @@ const CALENDAR_COLORS = {
 
 export default function CalendarScreen() {
   const router = useRouter();
-  const { events, fetchEvents, isLoading: eventsLoading } = useCalendarStore();
+  const { events, fetchEvents, isLoading: eventsLoading, lastSynced } = useCalendarStore();
   const [marked, setMarked] = useState<Record<string, any>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<'day' | 'week' | 'month'>('month');
@@ -41,6 +41,11 @@ export default function CalendarScreen() {
       stopPolling();
     };
   }, [fetchEvents]);
+
+  // Re-render UI when store reports a new sync
+  useEffect(() => {
+    // No-op: relying on events array update to re-render; this effect ensures dependency on lastSynced
+  }, [lastSynced]);
 
   useEffect(() => {
     let cancelled = false;

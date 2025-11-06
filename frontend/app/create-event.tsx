@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useCalendarStore } from '../stores/calendarStore';
@@ -21,7 +21,7 @@ registerTranslation('en', en);
 const CALENDAR_SOURCES = [
   { id: 'google', name: 'Google Calendar', color: '#4285F4' },
   { id: 'apple', name: 'Apple Calendar', color: '#FF3B30' },
-  { id: 'outlook', name: 'Outlook Calendar', color: '#0078D4' }
+  { id: 'microsoft', name: 'Microsoft Outlook', color: '#0078D4' }
 ];
 
 export default function CreateEventScreen() {
@@ -31,7 +31,7 @@ export default function CreateEventScreen() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
-  const [calendarSource] = useState('google');
+  const [calendarSource, setCalendarSource] = useState<'google' | 'microsoft' | 'apple'>('google');
 
   const [date, setDate] = useState<Date>(new Date());
   const [startDate, setStartDate] = useState<Date>(new Date());
@@ -60,6 +60,10 @@ export default function CreateEventScreen() {
   const handleCreate = async () => {
     if (!title.trim()) {
       setSnackbar({ visible: true, message: 'Please enter an event title' });
+      return;
+    }
+    if (!calendarSource) {
+      setSnackbar({ visible: true, message: 'Please select a calendar source' });
       return;
     }
     if (endDate <= startDate) {
@@ -125,6 +129,26 @@ export default function CreateEventScreen() {
                 disabled={isLoading}
                 style={styles.inputPaper}
               />
+              <Text variant="titleMedium" style={[styles.sectionTitle, { marginTop: 8 }]}>Calendar Source</Text>
+              <View style={styles.sourceRow}>
+                {CALENDAR_SOURCES.map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={[
+                      styles.sourceChip,
+                      { borderColor: s.color },
+                      calendarSource === (s.id as any) && styles.sourceChipActive
+                    ]}
+                    onPress={() => setCalendarSource(s.id as any)}
+                    disabled={isLoading}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.sourceChipText, calendarSource === (s.id as any) && { color: '#000' }]}>
+                      {s.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </Card.Content>
           </Card>
 
@@ -254,7 +278,7 @@ export default function CreateEventScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff'
+    backgroundColor: '#0A0A0A'
   },
   scrollContent: {
     padding: 16,
@@ -271,6 +295,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8
   },
+  sourceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8
+  },
+  sourceChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: '#121212'
+  },
+  sourceChipActive: {
+    backgroundColor: '#FFD700',
+    borderColor: '#FFD700'
+  },
+  sourceChipText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center'
@@ -284,6 +330,6 @@ const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
     right: 16,
-    bottom: 24
+    bottom: 90
   }
 });
