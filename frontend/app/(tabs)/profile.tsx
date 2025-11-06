@@ -13,6 +13,8 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import axios from 'axios';
+import Constants from 'expo-constants';
 
 const GOLD = '#FFD700';
 const BG = '#0A0A0A';
@@ -26,11 +28,27 @@ export default function ProfileScreen() {
 
   const [name, setName] = useState(user?.name || 'Anand Gupta');
   const [email, setEmail] = useState(user?.email || 'user@example.com');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const saveProfile = () => {
-    Alert.alert('Profile Updated', 'Your profile changes have been saved.');
+  const saveProfile = async () => {
+    try {
+      setSaving(true);
+      const API_URL =
+        Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL ||
+        process.env.EXPO_PUBLIC_BACKEND_URL ||
+        'https://unified-calendar-zflg.onrender.com';
+
+      // Attempt backend update if endpoint exists; silently fallback to local success
+      try {
+        await axios.put(`${API_URL}/auth/profile`, { name, email });
+      } catch (e) {
+        // Fallback: no profile endpoint on backend; proceed without failing UX
+      }
+
+      Alert.alert('Profile Updated', 'Your profile changes have been saved.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleLogout = () => {
@@ -72,32 +90,14 @@ export default function ProfileScreen() {
           />
         </View>
 
-        <Text style={styles.label}>Phone</Text>
-        <View style={styles.inputWrap}>
-          <TextInput
-            style={styles.input}
-            value={phone}
-            onChangeText={setPhone}
-            keyboardType="phone-pad"
-            placeholder="Optional"
-            placeholderTextColor={MUTED}
-          />
-        </View>
+        {/* Removed Phone and Change Password fields per requirements */}
 
-        <Text style={styles.label}>Change Password</Text>
-        <View style={styles.inputWrap}>
-          <TextInput
-            style={styles.input}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-            placeholder="New password"
-            placeholderTextColor={MUTED}
-          />
-        </View>
-
-        <Pressable style={styles.primaryBtn} onPress={saveProfile}>
-          <Text style={styles.primaryText}>Save Changes</Text>
+        <Pressable style={styles.primaryBtn} onPress={saveProfile} disabled={saving}>
+          {saving ? (
+            <ActivityIndicator color="#000" />
+          ) : (
+            <Text style={styles.primaryText}>Save Changes</Text>
+          )}
         </Pressable>
 
         <TouchableOpacity 

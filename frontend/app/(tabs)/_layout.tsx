@@ -25,29 +25,11 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <Ionicons name="home" color={color} size={size} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="calendar"
         options={{
           title: 'Calendar',
           tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <Ionicons name="calendar" color={color} size={size} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="tasks"
-        options={{
-          title: 'Tasks',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <Ionicons name="checkmark-done" color={color} size={size} />
           ),
         }}
       />
