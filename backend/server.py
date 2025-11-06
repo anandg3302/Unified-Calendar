@@ -386,7 +386,7 @@ async def google_callback(request: Request):
                 frontend_redirect_data = json.loads(decoded_state)
             frontend_redirect = (
                 (frontend_redirect_data or {}).get("frontend_redirect_uri")
-                or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+                or os.getenv("FRONTEND_REDIRECT")
             )
         except Exception:
             # Fallback if state is missing or malformed
@@ -409,7 +409,7 @@ async def google_callback(request: Request):
         try:
             decoded_state = unquote(state) if state else None
             data = json.loads(decoded_state) if decoded_state else {}
-            frontend_redirect = data.get("frontend_redirect_uri") or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+            frontend_redirect = data.get("frontend_redirect_uri") or os.getenv("FRONTEND_REDIRECT")
         except Exception:
             frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
         error_redirect = f"{frontend_redirect}?{urlencode({'error': 'oauth_error', 'error_description': str(e)})}"
