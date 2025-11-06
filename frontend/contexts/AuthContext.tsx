@@ -282,7 +282,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     oauthPromiseRef.current = { resolve, reject };
   });
 
-  window.open(loginUrl, "_blank");
+  await WebBrowser.openBrowserAsync(loginUrl);
   const { token, user } = await oauthResultPromise;
 
   localStorage.setItem("token", token);
