@@ -268,6 +268,15 @@ export default function EventsScreen() {
                 {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} found
               </Text>
             </View>
+            <TouchableOpacity 
+              style={styles.searchButton}
+              onPress={() => {}}
+              activeOpacity={0.7}
+            >
+              <BlurView intensity={80} tint="light" style={styles.blurButton}>
+                <Ionicons name="search-outline" size={22} color="#667EEA" />
+              </BlurView>
+            </TouchableOpacity>
           </Animated.View>
 
           {/* Filter Chips */}

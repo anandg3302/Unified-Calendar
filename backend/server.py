@@ -24,7 +24,6 @@ from google.oauth2.credentials import Credentials as GoogleCredentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.errors import HttpError
 from urllib.parse import quote, urlencode
-import urllib.parse
 import logging
 import json
 import asyncio

@@ -240,7 +240,74 @@ export default function CalendarScreen() {
         )}
       </Animated.View>
 
-      {/* Events section removed per requirements */}
+      {!!selectedDay && (
+        <Animated.View entering={FadeInDown.duration(200)} style={styles.eventsCard}>
+          <Text style={styles.eventsTitle}>
+            Events on {(() => {
+              try {
+                return format(parseISO(selectedDay), 'MMMM d, yyyy');
+              } catch {
+                return selectedDay;
+              }
+            })()}
+          </Text>
+          {getDayEvents.length === 0 ? (
+            <Text style={styles.empty}>No events found</Text>
+          ) : (
+            <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
+              {getDayEvents.map((event) => {
+                if (!event.start_time) return null; // Skip events without start_time
+                try {
+                  const eventDate = parseISO(event.start_time);
+                  const endDate = event.end_time ? parseISO(event.end_time) : null;
+                  const color = CALENDAR_COLORS[event.calendar_source as keyof typeof CALENDAR_COLORS] || GOLD;
+                  const isNewlyAccepted = event.is_invite && event.invite_status === 'accepted';
+                  
+                  return (
+                    <TouchableOpacity
+                      key={event.id}
+                      style={[
+                        styles.eventItem,
+                        isNewlyAccepted && styles.newlyAcceptedEvent
+                      ]}
+                      onPress={() => router.push(`/event-details?id=${event.id}`)}
+                    >
+                      <View style={[styles.eventColorBar, { backgroundColor: color }]} />
+                      <View style={styles.eventContent}>
+                        <Text style={styles.eventTitle}>{event.title}</Text>
+                        <Text style={styles.eventTime}>
+                          {format(eventDate, 'h:mm aa')} {endDate ? `- ${format(endDate, 'h:mm aa')}` : ''}
+                        </Text>
+                        {event.location && (
+                          <View style={styles.eventLocation}>
+                            <Ionicons name="location-outline" size={14} color={MUTED} />
+                            <Text style={styles.eventLocationText}>{event.location}</Text>
+                          </View>
+                        )}
+                        <View style={styles.eventMeta}>
+                          <View style={[styles.sourceChip, { backgroundColor: `${color}22`, borderColor: color }]}>
+                            <Text style={[styles.sourceChipText, { color }]}>
+                              {event.calendar_source.charAt(0).toUpperCase() + event.calendar_source.slice(1)}
+                            </Text>
+                          </View>
+                          {isNewlyAccepted && (
+                            <View style={styles.newBadge}>
+                              <Text style={styles.newBadgeText}>New</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                } catch (error) {
+                  console.warn('Error rendering event:', event.id, error);
+                  return null;
+                }
+              })}
+            </ScrollView>
+          )}
+        </Animated.View>
+      )}
 
       <Pressable style={styles.fab} onPress={() => router.push('/create-event')}>
         <Ionicons name="add" size={26} color="#000" />
