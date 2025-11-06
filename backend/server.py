@@ -72,7 +72,7 @@ api_router = APIRouter(prefix="/api")
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/calendar.events",
@@ -392,8 +392,6 @@ async def google_callback(request: Request):
             # Fallback if state is missing or malformed
             frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
         user_data = {"id": user_id, "email": email, "name": name}
-        from urllib.parse import urlencode, quote
-        import json
         # Properly encode the user JSON string
         user_json = json.dumps(user_data)
         # urlencode will handle the encoding properly
@@ -406,7 +404,7 @@ async def google_callback(request: Request):
         print("🔗 User data:", user_json)  # Debug log
         return RedirectResponse(redirect_uri)
     except Exception as e:
-        logger.error(f"Error in Google OAuth callback: {str(e)}")
+        logging.error(f"Error in Google OAuth callback: {str(e)}")
         # Try to redirect back to frontend with error (decode state if possible)
         try:
             decoded_state = unquote(state) if state else None
