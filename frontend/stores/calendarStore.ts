@@ -211,25 +211,35 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   createEvent: async (eventData: any) => {
     try {
+     
       const token =
         (await localStorage.getItem("auth_token")) ||
         (await localStorage.getItem("token"));
 
       // ✅ If GOOGLE → send to Google Calendar API
       if (eventData.calendar_source === "google") {
-        console.log("📌 Creating event on Google Calendar...");
+        console.log("📌 Event Data Received:", eventData);
+        
+      
+       
 
-        await apiClient.post(
-          `/google/create-event`,
-          eventData,
-          {
-            headers: { Authorization: `Bearer ${token}` }
-          }
-        );
-
+      const payload = {
+        title: eventData.title,
+        description: eventData.description,
+        start: eventData.start_time,
+        end: eventData.end_time,
+        calendar_id: "primary"
+      };
+      console.log("📌 Payload Sent:", payload);
+      console.log("📌 Payload:", payload);
+        await apiClient.post(`/google/create-event`, payload, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      
         await get().fetchEvents();
         return;
       }
+      
 
       // ✅ If APPLE → send to Apple Calendar
       if (eventData.calendar_source === "apple") {
@@ -256,9 +266,16 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         (await localStorage.getItem("auth_token")) ||
         (await localStorage.getItem("token"));
 
-      // ✅ GOOGLE update
+      // ✅ GOOGLE update (route + payload mapping)
       if (eventData.calendar_source === "google") {
-        await apiClient.put(`/google/update-event/${eventId}`, eventData, {
+        const payload = {
+          title: eventData.title,
+          description: eventData.description,
+          start: eventData.start_time,
+          end: eventData.end_time,
+          calendar_id: "primary",
+        };
+        await apiClient.put(`/google/update-event/${eventId}`, payload, {
           headers: { Authorization: `Bearer ${token}` },
         });
         await get().fetchEvents();
@@ -308,7 +325,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   respondToInvite: async (eventId: string, status: string) => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       await apiClient.patch(`/events/${eventId}/respond`, 
         { status },
@@ -329,7 +346,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   // Apple Calendar methods
   connectAppleCalendar: async (credentials: {appleId: string, appSpecificPassword: string}) => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       const response = await apiClient.post('/api/apple/calendar/connect', credentials, {
         headers: {
@@ -352,7 +369,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   syncAppleEvents: async () => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       await apiClient.post('/api/apple/calendar/sync', {
         sync_direction: 'from_apple',
@@ -372,7 +389,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   createAppleEvent: async (eventData: any) => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       await apiClient.post('/api/apple/calendar/events', eventData, {
         headers: {
@@ -389,7 +406,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   updateAppleEvent: async (eventId: string, eventData: any) => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       await apiClient.put(`/api/apple/calendar/events/${eventId}`, eventData, {
         headers: {
@@ -406,7 +423,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   deleteAppleEvent: async (eventId: string) => {
     try {
-      const token = await localStorage.getItem('token');
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       await apiClient.delete(`/api/apple/calendar/events/${eventId}`, {
         headers: {
