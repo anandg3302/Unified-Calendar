@@ -23,7 +23,7 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials as GoogleCredentials
 from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.errors import HttpError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, unquote
 import logging
 import json
 import asyncio
@@ -215,7 +215,7 @@ async def google_login(frontend_redirect_uri: str = None):
 
     # Store the frontend redirect URI in state
     state_data = {"frontend_redirect_uri": frontend_redirect_uri}
-    state = urllib.parse.quote(json.dumps(state_data))
+    state = quote(json.dumps(state_data))
 
     auth_url, _ = flow.authorization_url(
         prompt="consent",
@@ -246,7 +246,24 @@ async def google_callback(request: Request):
             scopes=SCOPES,
         )
         flow.redirect_uri = GOOGLE_REDIRECT_URI
-        flow.fetch_token(code=code)
+        # Log redirect URIs to help diagnose mismatches
+        logging.info("🔐 OAuth redirect: expected=%s, flow.redirect_uri=%s", GOOGLE_REDIRECT_URI, getattr(flow, 'redirect_uri', None))
+
+        try:
+            flow.fetch_token(code=code)
+        except Exception as token_err:
+            # Handle expired/reused/invalid auth codes gracefully
+            logging.error("❌ OAuth fetch_token error: %s", str(token_err))
+            # Build safe error redirect
+            try:
+                decoded_state = unquote(state) if state else None
+                data = json.loads(decoded_state) if decoded_state else {}
+                frontend_redirect = data.get("frontend_redirect_uri") or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+            except Exception:
+                frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
+            error_type = "invalid_grant" if "invalid_grant" in str(token_err) else "oauth_error"
+            error_redirect = f"{frontend_redirect}?{urlencode({'error': error_type, 'error_description': str(token_err)})}"
+            return RedirectResponse(error_redirect)
         credentials = flow.credentials
 
         # Get user info
@@ -262,7 +279,7 @@ async def google_callback(request: Request):
         user = await db.users.find_one({"email": email})
         
         # Store granted scopes with the token for scope validation
-        granted_scopes = credentials.scopes if hasattr(credentials, 'scopes') else SCOPES
+        granted_scopes = getattr(credentials, 'scopes', None) or SCOPES
         
         if not user:
             user_dict = {
@@ -277,14 +294,14 @@ async def google_callback(request: Request):
             result = await db.users.insert_one(user_dict)
             user_id = str(result.inserted_id)
         else:
-            await db.users.update_one(
-                {"_id": user["_id"]},
-                {"$set": {
-                    "google_refresh_token": credentials.refresh_token,
-                    "google_scopes": granted_scopes,  # Update stored scopes
-                    "google_scopes_updated_at": datetime.utcnow(),  # Update timestamp
-                }},
-            )
+            # Only overwrite refresh token if Google returned a new one
+            update_fields = {
+                "google_scopes": granted_scopes,
+                "google_scopes_updated_at": datetime.utcnow(),
+            }
+            if getattr(credentials, 'refresh_token', None):
+                update_fields["google_refresh_token"] = credentials.refresh_token
+            await db.users.update_one({"_id": user["_id"]}, {"$set": update_fields})
             user_id = str(user["_id"])
 
         # Generate JWT
@@ -364,8 +381,8 @@ async def google_callback(request: Request):
         try:
             frontend_redirect_data = None
             if state:
-                # state was encoded with urllib.parse.quote(json.dumps(...))
-                decoded_state = urllib.parse.unquote(state)
+                # state was encoded with quote(json.dumps(...))
+                decoded_state = unquote(state)
                 frontend_redirect_data = json.loads(decoded_state)
             frontend_redirect = (
                 (frontend_redirect_data or {}).get("frontend_redirect_uri")
@@ -392,12 +409,12 @@ async def google_callback(request: Request):
         logger.error(f"Error in Google OAuth callback: {str(e)}")
         # Try to redirect back to frontend with error (decode state if possible)
         try:
-            decoded_state = urllib.parse.unquote(state) if state else None
+            decoded_state = unquote(state) if state else None
             data = json.loads(decoded_state) if decoded_state else {}
             frontend_redirect = data.get("frontend_redirect_uri") or os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
         except Exception:
             frontend_redirect = os.getenv("FRONTEND_REDIRECT", "frontend://oauth-callback")
-        error_redirect = f"{frontend_redirect}?{urlencode({'error': 'Google OAuth failed', 'error_description': str(e)})}"
+        error_redirect = f"{frontend_redirect}?{urlencode({'error': 'oauth_error', 'error_description': str(e)})}"
         return RedirectResponse(error_redirect)
 
 # ───────────────────────────────────────────────
