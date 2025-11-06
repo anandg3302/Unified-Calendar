@@ -1288,6 +1288,10 @@ app.include_router(apple_router)
 from microsoft_routes import microsoft_router
 app.include_router(microsoft_router)
 
+# Import Google Calendar routes
+from routes.google_calendar import router as google_router
+app.include_router(google_router)
+
 # ───────────────────────────────────────────────
 # Startup
 @app.on_event("startup")

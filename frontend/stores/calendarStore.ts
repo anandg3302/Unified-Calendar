@@ -211,80 +211,97 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   createEvent: async (eventData: any) => {
     try {
-      const token = await localStorage.getItem('token');
-      
+      const token =
+        (await localStorage.getItem("auth_token")) ||
+        (await localStorage.getItem("token"));
+
+      // ✅ If GOOGLE → send to Google Calendar API
+      if (eventData.calendar_source === "google") {
+        console.log("📌 Creating event on Google Calendar...");
+
+        await apiClient.post(
+          `/google/create-event`,
+          eventData,
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+        );
+
+        await get().fetchEvents();
+        return;
+      }
+
+      // ✅ If APPLE → send to Apple Calendar
+      if (eventData.calendar_source === "apple") {
+        console.log("📌 Creating event on Apple Calendar...");
+        await get().createAppleEvent(eventData);
+        return;
+      }
+
+      // ✅ LOCAL events — save normally
       await apiClient.post(`/events`, eventData, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       await get().fetchEvents();
     } catch (error) {
-      console.error('Error creating event:', error);
+      console.error("Error creating event:", error);
       throw error;
     }
   },
 
   updateEvent: async (eventId: string, eventData: any) => {
     try {
-      const token = await localStorage.getItem('token');
-      
-      await apiClient.put(`/events/${eventId}`, eventData, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      await get().fetchEvents();
-    } catch (error: any) {
-      console.error('Error updating event:', error);
-      
-      // Show more specific error message for validation errors
-      if (error.response?.status === 422) {
-        Alert.alert('Validation Error', 'Please check that all required fields are filled correctly.');
-      } else if (error.response?.status === 404) {
-        Alert.alert('Event Not Found', 'The event you are trying to update no longer exists.');
+      const token =
+        (await localStorage.getItem("auth_token")) ||
+        (await localStorage.getItem("token"));
+
+      // ✅ GOOGLE update
+      if (eventData.calendar_source === "google") {
+        await apiClient.put(`/google/update-event/${eventId}`, eventData, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        await get().fetchEvents();
+        return;
       }
-      
+
+      // ✅ LOCAL update
+      await apiClient.put(`/events/${eventId}`, eventData, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      await get().fetchEvents();
+    } catch (error) {
+      console.error("Error updating event:", error);
       throw error;
     }
   },
 
   deleteEvent: async (eventId: string) => {
     try {
-      const token = await localStorage.getItem('token');
-      
-      if (!token) {
-        throw new Error('Authentication required');
+      const token =
+        (await localStorage.getItem("auth_token")) ||
+        (await localStorage.getItem("token"));
+
+      const event = get().events.find((e) => e.id === eventId);
+
+      // ✅ GOOGLE delete
+      if (event?.calendar_source === "google") {
+        await apiClient.delete(`/google/delete-event/${eventId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        await get().fetchEvents();
+        return;
       }
-      
-      const response = await apiClient.delete(`/events/${eventId}`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+
+      // ✅ LOCAL delete
+      await apiClient.delete(`/events/${eventId}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
-      // Refresh events list after successful deletion
+
       await get().fetchEvents();
-      
-      return response.data;
-    } catch (error: any) {
-      console.error('Error deleting event:', error);
-      
-      // Provide more specific error messages
-      if (error.response?.status === 404) {
-        throw new Error('Event not found. It may have already been deleted.');
-      } else if (error.response?.status === 401) {
-        throw new Error('Authentication required. Please log in again.');
-      } else if (error.response?.status === 403) {
-        throw new Error('You do not have permission to delete this event.');
-      } else if (error.response?.status >= 500) {
-        throw new Error('Server error. Please try again later.');
-      } else if (error.request) {
-        throw new Error('Network error. Please check your connection.');
-      }
-      
+    } catch (error) {
+      console.error("Error deleting event:", error);
       throw error;
     }
   },

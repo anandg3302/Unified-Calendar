@@ -8,7 +8,7 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import localStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import microsoftCalendarService from '../services/microsoftCalendarService';
@@ -34,7 +34,7 @@ export default function MicrosoftCalendarConnection({
       setIsLoading(true);
 
       // Get auth token
-      const token = await localStorage.getItem('token');
+      const token = (await AsyncStorage.getItem('auth_token')) || (await AsyncStorage.getItem('token'));
       if (!token) {
         Alert.alert('Error', 'Please log in first');
         return;
@@ -83,7 +83,7 @@ export default function MicrosoftCalendarConnection({
           onPress: async () => {
             try {
               setIsLoading(true);
-              const token = await localStorage.getItem('token');
+              const token = (await AsyncStorage.getItem('auth_token')) || (await AsyncStorage.getItem('token'));
               
               if (token) {
                 const success = await microsoftCalendarService.disconnectMicrosoft(token);
