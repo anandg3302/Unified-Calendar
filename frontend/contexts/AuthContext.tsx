@@ -273,22 +273,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const loginWithGoogle = async () => {
     try {
       // Build a deep link the app can handle, e.g., unifiedcalendar://oauth-callback
-      const returnUrl = Linking.createURL('oauth-callback');
-      const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
+      // const returnUrl = Linking.createURL('oauth-callback');
+      // const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
+      const frontendRedirect = 'https://unified-calendar-4dqh.vercel.app/oauth-callback';
+  const loginUrl = `${process.env.API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(frontendRedirect)}`;
 
-      // 🔗 Open Google login in external browser and wait for deep link via listener
-      console.log('🔗 Opening Google login with returnUrl:', returnUrl);
-      const oauthResultPromise = new Promise<{ token: string; user: any }>((resolve, reject) => {
-        oauthPromiseRef.current = { resolve, reject };
-      });
-      await WebBrowser.openBrowserAsync(loginUrl);
-      const { token: accessToken, user: userData } = await oauthResultPromise;
+  const oauthResultPromise = new Promise<{ token: string; user: any }>((resolve, reject) => {
+    oauthPromiseRef.current = { resolve, reject };
+  });
 
-      await localStorage.setItem('token', accessToken);
-      await localStorage.setItem('user', JSON.stringify(userData));
-      setToken(accessToken);
-      setUser(userData);
-      alert('✅ Google login successful!');
+  window.open(loginUrl, "_blank");
+  const { token, user } = await oauthResultPromise;
+
+  localStorage.setItem("token", token);
+  localStorage.setItem("user", JSON.stringify(user));
+  alert("✅ Google login successful!");
       
       // Setup Google Calendar watch channel for real-time sync
       try {
@@ -324,6 +323,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  useEffect(() => {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  const user = params.get("user");
+  if (token && user && oauthPromiseRef.current) {
+    oauthPromiseRef.current.resolve({ token, user: JSON.parse(user) });
+    oauthPromiseRef.current = null;
+    window.history.replaceState({}, document.title, "/"); // Clean URL
+  }
+}, []);
   // Logout user
   const logout = async () => {
     await localStorage.removeItem('token');
