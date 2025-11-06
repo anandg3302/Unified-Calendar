@@ -124,7 +124,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
   fetchEvents: async () => {
     try {
       set({ isLoading: true });
-      const token = await localStorage.getItem('token');
+      // Support both native ('auth_token') and web ('token') keys
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       const { selectedSources } = get();
       
       const response = await apiClient.get(`/events`, {
@@ -173,7 +174,8 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
 
   fetchCalendarSources: async () => {
     try {
-      const token = await localStorage.getItem('token');
+      // Support both native ('auth_token') and web ('token') keys
+      const token = (await localStorage.getItem('auth_token')) || (await localStorage.getItem('token'));
       
       const response = await apiClient.get(`/api/calendar-sources`, {
         headers: {

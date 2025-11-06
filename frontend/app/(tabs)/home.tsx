@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 16,
+    bottom: 90, // Move above the system tab bar to prevent overlap
     height: 68,
     backgroundColor: '#0D0D0D',
     borderRadius: 22,

@@ -27,7 +27,7 @@ export default function CalendarScreen() {
   const [marked, setMarked] = useState<Record<string, any>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [view, setView] = useState<'day' | 'week' | 'month'>('month');
-  const [selectedDay, setSelectedDay] = useState<string | null>(new Date().toISOString().slice(0, 10));
+  const [selectedDay, setSelectedDay] = useState<string | null>(format(new Date(), 'yyyy-MM-dd'));
   const [weekAnchor, setWeekAnchor] = useState<Date>(new Date());
   const [dayDate, setDayDate] = useState<Date>(new Date());
 
@@ -54,7 +54,8 @@ export default function CalendarScreen() {
         events.forEach(event => {
           if (!event.start_time) return; // Skip events without start_time
           try {
-            const eventDate = parseISO(event.start_time).toISOString().slice(0, 10);
+            // Use local date string to avoid UTC shifting issues that hide dots
+            const eventDate = format(parseISO(event.start_time), 'yyyy-MM-dd');
             if (!marks[eventDate]) {
               marks[eventDate] = {
                 marked: true,
@@ -381,7 +382,7 @@ const styles = StyleSheet.create({
   },
   dayCardDate: { color: GOLD, fontSize: 48, fontWeight: '800' },
   dayCardMonth: { color: MUTED, fontSize: 16, marginTop: 4 },
-  fab: { position: 'absolute', right: 18, bottom: 18, width: 56, height: 56, borderRadius: 28, backgroundColor: GOLD, alignItems: 'center', justifyContent: 'center' }
+  fab: { position: 'absolute', right: 18, bottom: 90, width: 56, height: 56, borderRadius: 28, backgroundColor: GOLD, alignItems: 'center', justifyContent: 'center' }
 });
 
 //
