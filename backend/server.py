@@ -1330,10 +1330,10 @@ app.include_router(google_router)
 @app.on_event("startup")
 async def _startup_tasks():
     try:
-        asyncio.create_task(_renew_google_channels_periodically())
-        logging.info("🕒 Started Google channel renewal background task")
+        logging.info("⚠️ Google channel renewal background task temporarily disabled")
+        # asyncio.create_task(_renew_google_channels_periodically())
     except Exception as e:
-        logging.error("Failed to start renewal background task: %s", str(e))
+        logging.error("Failed during startup task setup: %s", str(e))
 
 if __name__ == "__main__":
     import uvicorn
