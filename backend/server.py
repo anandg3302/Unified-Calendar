@@ -327,9 +327,8 @@ async def google_callback(request: Request):
 
         # Automatically setup Google Calendar watch channel for real-time sync
         try:
-            # Resolve webhook URL from environment (preferred) or fallback to backend URL + /api path
-            backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
-            webhook_url = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
+            # Force webhook URL to notifications endpoint
+            webhook_url = "https://unified-calendar-zflg.onrender.com/api/google/notifications"
             
             # Fetch the updated user to get full user object
             updated_user = await db.users.find_one({"_id": ObjectId(user_id)})
@@ -387,7 +386,14 @@ async def google_callback(request: Request):
                             "sync_token": None,
                             "created_at": datetime.utcnow(),
                         })
-                        logging.info(f"✅ Auto-setup watch channel for user {user_id}")
+                        logging.info(
+                            "✅ Auto-setup watch channel for user %s | channel_id=%s resource_id=%s expiration=%s webhook=%s",
+                            user_id,
+                            watch.get("id"),
+                            watch.get("resourceId"),
+                            watch.get("expiration"),
+                            webhook_url,
+                        )
                     else:
                         raise last_exc or Exception("Failed to create Google watch channel")
             else:
@@ -581,7 +587,6 @@ async def delete_google_event(event_id: str, current_user: dict = Depends(get_cu
 
 
 class WatchRequest(BaseModel):
-    webhook_url: Optional[str] = None
     token: Optional[str] = None  # Opaque token to verify notifications
 
 
@@ -605,13 +610,11 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         user_email = current_user.get("email", "unknown")
         user_name = current_user.get("name", "User")
         
-        # Resolve webhook URL from request or env
-        backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
-        default_webhook = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
-        resolved_webhook = body.webhook_url or default_webhook
+        # Force webhook URL to notifications endpoint
+        resolved_webhook = "https://unified-calendar-zflg.onrender.com/api/google/notifications"
 
         logging.info("📡 Setting up Google watch channel for user %s (%s - %s)", user_id, user_email, user_name)
-        logging.info("📡 Webhook URL: %s", resolved_webhook)
+        logging.info("📡 Webhook: %s", resolved_webhook)
         
         # Check if user already has an active watch channel
         existing_channel = await db.google_watch_channels.find_one({"user_id": user_id})
@@ -723,7 +726,7 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
                      watch.get("id"), user_id, user_email)
         logging.info("   📋 Resource ID: %s", watch.get("resourceId"))
         logging.info("   ⏰ Expires: %s", watch.get("expiration"))
-        logging.info("   🌐 Webhook URL: %s", resolved_webhook)
+        logging.info("   📡 Webhook: %s", resolved_webhook)
         
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
@@ -734,7 +737,7 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
                 "channel_id": watch.get("id"),
                 "resource_id": watch.get("resourceId"),
                 "expiration": watch.get("expiration"),
-                "webhook_url": body.webhook_url,
+                "webhook_url": resolved_webhook,
                 "user_id": user_id,
                 "user_email": user_email
             }
@@ -887,6 +890,7 @@ async def _perform_google_incremental_sync(user_id: str):
 
 @app.post("/google/notify")
 @app.post("/api/google/watch-notify")
+@app.post("/api/google/notifications")
 async def google_notify(request: Request, background_tasks: BackgroundTasks):
     """Receive Google push notifications. Google expects 200 OK quickly."""
     # Read headers from Google
@@ -895,7 +899,7 @@ async def google_notify(request: Request, background_tasks: BackgroundTasks):
     resource_state = request.headers.get("X-Goog-Resource-State")
     token = request.headers.get("X-Goog-Channel-Token")
     logging.info(
-        "📬 Google notify: channel=%s resource=%s state=%s", channel_id, resource_id, resource_state
+        "🔔 Incoming Google notification: channel=%s resource=%s state=%s", channel_id, resource_id, resource_state
     )
     
     # Google sends an initial sync notification when channel is created
@@ -976,7 +980,8 @@ async def _renew_channel_for_user(user_id: str, channel_doc: dict):
     """Stop an existing channel and create a new one with the same address/token."""
     try:
         service = await _build_google_service_for_user_id(user_id)
-        address = channel_doc.get("address")
+        # Force address to the canonical notifications webhook URL
+        address = "https://unified-calendar-zflg.onrender.com/api/google/notifications"
         token_val = channel_doc.get("token")
         if not address:
             logging.warning("Channel missing address; cannot renew (user=%s)", user_id)
@@ -1022,6 +1027,9 @@ async def _renew_channel_for_user(user_id: str, channel_doc: dict):
             }}
         )
         logging.info("🔄 Renewed Google watch channel for user %s", user_id)
+        logging.info("   📋 Resource ID: %s", watch.get("resourceId"))
+        logging.info("   ⏰ Expires: %s", watch.get("expiration"))
+        logging.info("   📡 Webhook: %s", address)
     except Exception as e:
         logging.error("Failed to renew channel for user %s: %s", user_id, str(e))
 
@@ -1357,13 +1365,8 @@ async def _startup_tasks():
             logging.info("✅ Google watch-channel renewal enabled")
             # Kick off renewal loop
             asyncio.create_task(_renew_google_channels_periodically())
-            # Log effective webhook URL
-            try:
-                backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
-                effective_webhook = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
-                logging.info("🌐 Google webhook URL: %s", effective_webhook)
-            except Exception:
-                pass
+            # Log effective webhook URL (forced)
+            logging.info("🌐 Google webhook URL: https://unified-calendar-zflg.onrender.com/api/google/notifications")
             # Load last saved channel for observability
             try:
                 last_channel = await db.google_watch_channels.find_one(sort=[("created_at", -1)])
