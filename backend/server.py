@@ -67,6 +67,22 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # 30 days
 # App setup
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
+# Configure CORS for frontend domains
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://unified-calendar-4dqh.vercel.app",
+        "https://unified-calendar-zflg.onrender.com",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Basic logging configuration
+logging.basicConfig(level=logging.INFO)
 
 # ───────────────────────────────────────────────
 # Google OAuth configuration
@@ -207,6 +223,7 @@ async def database_health_check():
 # Google OAuth routes
 @app.get("/api/google/login")
 async def google_login(frontend_redirect_uri: str = None):
+    logging.info("/api/google/login called with frontend_redirect_uri=%s", frontend_redirect_uri)
     flow = Flow.from_client_secrets_file(
         "client_secret.json",
         scopes=SCOPES,
@@ -222,6 +239,7 @@ async def google_login(frontend_redirect_uri: str = None):
         access_type="offline",
         state=state
     )
+    logging.info("Generated Google auth_url=%s", auth_url)
     return RedirectResponse(auth_url)
 
 @app.get("/api/google/callback")
@@ -417,7 +435,7 @@ async def google_callback(request: Request):
 
 # ───────────────────────────────────────────────
 # Google Calendar REST Endpoints
-@app.get("/google/events")
+@app.get("/api/google/events")
 async def get_google_events(current_user: dict = Depends(get_current_user)):
     """Fetch upcoming events from user's primary Google Calendar."""
     user_id = str(current_user["_id"]) if "_id" in current_user else None
@@ -500,7 +518,7 @@ def _get_calendar_service_from_refresh_token(current_user: dict):
     return build("calendar", "v3", credentials=creds)
 
 
-@app.post("/google/add_event")
+@app.post("/api/google/add_event")
 async def add_google_event(payload: GoogleEventCreate, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -521,7 +539,7 @@ async def add_google_event(payload: GoogleEventCreate, current_user: dict = Depe
         raise HTTPException(status_code=500, detail="Failed to create Google event")
 
 
-@app.put("/google/update_event/{event_id}")
+@app.put("/api/google/update_event/{event_id}")
 async def update_google_event(event_id: str, payload: GoogleEventUpdate, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -549,7 +567,7 @@ async def update_google_event(event_id: str, payload: GoogleEventUpdate, current
         raise HTTPException(status_code=500, detail="Failed to update Google event")
 
 
-@app.delete("/google/delete_event/{event_id}")
+@app.delete("/api/google/delete_event/{event_id}")
 async def delete_google_event(event_id: str, current_user: dict = Depends(get_current_user)):
     try:
         service = _get_calendar_service_from_refresh_token(current_user)
@@ -566,7 +584,7 @@ class WatchRequest(BaseModel):
     token: Optional[str] = None  # Opaque token to verify notifications
 
 
-@app.post("/google/watch", status_code=status.HTTP_201_CREATED)
+@app.post("/api/google/watch", status_code=status.HTTP_201_CREATED)
 async def google_watch(body: WatchRequest, current_user: dict = Depends(get_current_user)):
     """
     Create a Google Calendar watch channel for push notifications.

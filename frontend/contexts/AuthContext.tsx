@@ -276,7 +276,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // const returnUrl = Linking.createURL('oauth-callback');
       // const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(returnUrl)}`;
       const frontendRedirect = 'https://unified-calendar-4dqh.vercel.app/oauth-callback';
-  const loginUrl = `${process.env.API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(frontendRedirect)}`;
+      const loginUrl = `${API_URL}/api/google/login?frontend_redirect_uri=${encodeURIComponent(frontendRedirect)}`;
 
   const oauthResultPromise = new Promise<{ token: string; user: any }>((resolve, reject) => {
     oauthPromiseRef.current = { resolve, reject };

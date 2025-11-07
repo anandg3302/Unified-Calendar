@@ -10,6 +10,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
 
 // Request interceptor to add auth token if available
@@ -82,7 +83,8 @@ export const loginUser = async (email, password) => {
 // ──────────────────────
 export const googleLogin = () => {
   // Redirect user to backend Google login
-  window.location.href = `${API_BASE}/api/google/login`;
+  const frontendRedirect = 'https://unified-calendar-4dqh.vercel.app/oauth-callback';
+  window.location.href = `${API_BASE}/api/google/login?frontend_redirect_uri=${encodeURIComponent(frontendRedirect)}`;
 };
 
 // Optional: If you need to fetch Google Calendar events from frontend
@@ -140,3 +142,6 @@ export const deleteEvent = async (eventId, token) => {
   });
   return res.json();
 };
+
+export { api as apiClient, API_BASE };
+export default api;

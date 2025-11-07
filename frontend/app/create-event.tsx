@@ -139,7 +139,15 @@ export default function CreateEventScreen() {
                       { borderColor: s.color },
                       calendarSource === (s.id as any) && styles.sourceChipActive
                     ]}
-                    onPress={() => setCalendarSource(s.id as any)}
+                    onPress={() => {
+                      const chosen = s.id as any;
+                      setCalendarSource(chosen);
+                      try {
+                        const stored = { provider: chosen, calendarId: chosen === 'google' ? 'primary' : undefined };
+                        (global as any)?.localStorage?.setItem?.('selectedCalendarSource', JSON.stringify(stored));
+                        console.log('🗂️ Selected source set:', stored);
+                      } catch {}
+                    }}
                     disabled={isLoading}
                     activeOpacity={0.85}
                   >
