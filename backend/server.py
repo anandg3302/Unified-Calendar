@@ -327,9 +327,9 @@ async def google_callback(request: Request):
 
         # Automatically setup Google Calendar watch channel for real-time sync
         try:
-            # Get the backend URL for webhook
+            # Resolve webhook URL from environment (preferred) or fallback to backend URL + /api path
             backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
-            webhook_url = f"{backend_url}/google/notify"
+            webhook_url = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
             
             # Fetch the updated user to get full user object
             updated_user = await db.users.find_one({"_id": ObjectId(user_id)})
@@ -384,6 +384,7 @@ async def google_callback(request: Request):
                             "expiration": watch.get("expiration"),
                             "address": webhook_url,
                             "token": None,
+                            "sync_token": None,
                             "created_at": datetime.utcnow(),
                         })
                         logging.info(f"✅ Auto-setup watch channel for user {user_id}")
@@ -580,7 +581,7 @@ async def delete_google_event(event_id: str, current_user: dict = Depends(get_cu
 
 
 class WatchRequest(BaseModel):
-    webhook_url: str
+    webhook_url: Optional[str] = None
     token: Optional[str] = None  # Opaque token to verify notifications
 
 
@@ -604,8 +605,13 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         user_email = current_user.get("email", "unknown")
         user_name = current_user.get("name", "User")
         
+        # Resolve webhook URL from request or env
+        backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
+        default_webhook = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
+        resolved_webhook = body.webhook_url or default_webhook
+
         logging.info("📡 Setting up Google watch channel for user %s (%s - %s)", user_id, user_email, user_name)
-        logging.info("📡 Webhook URL: %s", body.webhook_url)
+        logging.info("📡 Webhook URL: %s", resolved_webhook)
         
         # Check if user already has an active watch channel
         existing_channel = await db.google_watch_channels.find_one({"user_id": user_id})
@@ -657,7 +663,7 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
         request_body = {
             "id": channel_id,
             "type": "web_hook",
-            "address": body.webhook_url,
+            "address": resolved_webhook,
         }
         if body.token:
             request_body["token"] = body.token
@@ -706,8 +712,9 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
             "channel_id": watch.get("id"),
             "resource_id": watch.get("resourceId"),
             "expiration": watch.get("expiration"),
-            "address": body.webhook_url,
+            "address": resolved_webhook,
             "token": body.token,
+            "sync_token": None,
             "created_at": datetime.utcnow(),
         }
         await db.google_watch_channels.insert_one(channel_doc)
@@ -716,7 +723,7 @@ async def google_watch(body: WatchRequest, current_user: dict = Depends(get_curr
                      watch.get("id"), user_id, user_email)
         logging.info("   📋 Resource ID: %s", watch.get("resourceId"))
         logging.info("   ⏰ Expires: %s", watch.get("expiration"))
-        logging.info("   🌐 Webhook URL: %s", body.webhook_url)
+        logging.info("   🌐 Webhook URL: %s", resolved_webhook)
         
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
@@ -816,35 +823,44 @@ async def _perform_google_incremental_sync(user_id: str):
 
         next_page = None
         next_sync_token = None
+        invalid_sync_handled = False
         while True:
             if next_page:
                 params["pageToken"] = next_page
             try:
-                # Exponential backoff for Google events list
-                max_attempts = 5
-                delay = 1
-                last_exc = None
-                resp = None
-                for _ in range(max_attempts):
-                    try:
-                        resp = service.events().list(**params).execute()
-                        break
-                    except Exception as e:
-                        last_exc = e
-                        await asyncio.sleep(delay)
-                        delay = min(delay * 2, 30)
-                if resp is None:
-                    raise last_exc or Exception("Failed to list Google events")
-            except HttpError as he:
-                # 410 Gone: invalid sync token → clear and retry full
-                if getattr(he, "status_code", None) == 410 or "410" in str(he):
-                    await db.google_sync_state.delete_one({"user_id": user_id})
-                    # Restart with full windowed sync
+                resp = service.events().list(**params).execute()
+            except HttpError as e:
+                # Handle invalid/expired sync token (HTTP 410 Gone or invalidSyncToken)
+                try:
+                    status = getattr(e, 'resp', None).status if getattr(e, 'resp', None) else None
+                    details = json.loads(e.content.decode('utf-8')) if e.content else {}
+                    reason = details.get('error', {}).get('message', '')
+                except Exception:
+                    status, reason = None, ''
+                if (status == 410 or 'sync token' in reason.lower() or 'invalidSyncToken' in reason) and not invalid_sync_handled:
+                    logging.warning("🔁 Sync token invalid/expired for user %s. Falling back to full sync.", user_id)
+                    # Clear stored sync token and restart without it (full sync window)
+                    await db.google_sync_state.update_one(
+                        {"user_id": user_id},
+                        {"$unset": {"sync_token": ""}, "$set": {"updated_at": datetime.utcnow()}},
+                        upsert=True,
+                    )
                     params.pop("syncToken", None)
+                    params.pop("pageToken", None)
+                    invalid_sync_handled = True
+                    next_page = None
+                    # Recompute windowed params for initial sync
                     from datetime import timedelta
-                    params["timeMin"] = (datetime.utcnow() - timedelta(days=60)).isoformat() + "Z"
+                    time_min = (datetime.utcnow() - timedelta(days=60)).isoformat() + 'Z'
+                    params["timeMin"] = time_min
+                    params["maxResults"] = 2500
+                    # Retry loop with updated params
                     continue
-                raise
+                logging.error("Incremental sync list() failed for user %s: HTTP %s %s", user_id, status, reason)
+                break
+            except Exception as e:
+                logging.error("Incremental sync list() failed for user %s: %s", user_id, str(e))
+                break
 
             items = resp.get("items", [])
             for item in items:
@@ -870,6 +886,7 @@ async def _perform_google_incremental_sync(user_id: str):
 
 
 @app.post("/google/notify")
+@app.post("/api/google/watch-notify")
 async def google_notify(request: Request, background_tasks: BackgroundTasks):
     """Receive Google push notifications. Google expects 200 OK quickly."""
     # Read headers from Google
@@ -901,6 +918,11 @@ async def google_notify(request: Request, background_tasks: BackgroundTasks):
         logging.warning("⚠️ Google notify: channel not found for channel_id=%s resource_id=%s", channel_id, resource_id)
         return {"status": "ignored", "reason": "channel_not_found"}
     
+    # Optional token validation if we stored an opaque token for the channel
+    if channel.get("token") and token and token != channel.get("token"):
+        logging.warning("⚠️ Google notify: token mismatch for channel_id=%s", channel_id)
+        return {"status": "ignored", "reason": "token_mismatch"}
+
     if not channel.get("user_id"):
         logging.warning("⚠️ Google notify: channel missing user_id")
         return {"status": "ignored", "reason": "missing_user_id"}
@@ -1330,8 +1352,35 @@ app.include_router(google_router)
 @app.on_event("startup")
 async def _startup_tasks():
     try:
-        logging.info("⚠️ Google channel renewal background task temporarily disabled")
-        # asyncio.create_task(_renew_google_channels_periodically())
+        watch_enabled = os.getenv("GOOGLE_WATCH_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+        if watch_enabled:
+            logging.info("✅ Google watch-channel renewal enabled")
+            # Kick off renewal loop
+            asyncio.create_task(_renew_google_channels_periodically())
+            # Log effective webhook URL
+            try:
+                backend_url = os.getenv('BACKEND_URL', 'https://unified-calendar-zflg.onrender.com')
+                effective_webhook = os.getenv('GOOGLE_WEBHOOK_URL') or f"{backend_url}/api/google/watch-notify"
+                logging.info("🌐 Google webhook URL: %s", effective_webhook)
+            except Exception:
+                pass
+            # Load last saved channel for observability
+            try:
+                last_channel = await db.google_watch_channels.find_one(sort=[("created_at", -1)])
+                if last_channel:
+                    logging.info(
+                        "✅ Loaded last saved channel from DB: channel_id=%s resource_id=%s expiration=%s user_id=%s",
+                        last_channel.get("channel_id"),
+                        last_channel.get("resource_id"),
+                        last_channel.get("expiration"),
+                        last_channel.get("user_id"),
+                    )
+                else:
+                    logging.info("ℹ️ No existing Google watch channels found in DB")
+            except Exception as db_err:
+                logging.warning("⚠️ Could not load last saved channel: %s", str(db_err))
+        else:
+            logging.info("⚠️ Google watch-channel renewal disabled via GOOGLE_WATCH_ENABLED")
     except Exception as e:
         logging.error("Failed during startup task setup: %s", str(e))
 
