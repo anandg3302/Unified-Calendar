@@ -42,6 +42,15 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="events"
+        options={{
+          title: 'Events',
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
+            <Ionicons name="list" color={color} size={size} />
+          ),
+        }}
+      />
       {/** Explicitly hide Tasks route if the file still exists */}
       <Tabs.Screen
         name="tasks"

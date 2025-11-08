@@ -101,7 +101,17 @@ export default function EventsScreen() {
         }
       }
       
-      
+      if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && event.attendees) {
+        const attendees = Array.isArray(event.attendees) ? event.attendees : [];
+        const pendingAttendee = attendees.find((a: any) => 
+          a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
+        );
+        
+        if (pendingAttendee && !isInvite) {
+          isInvite = true;
+          inviteStatus = 'pending';
+        }
+      }
       
       if (isInvite && !inviteStatus) {
         inviteStatus = 'pending';
@@ -175,17 +185,17 @@ export default function EventsScreen() {
             isPending = hasPendingResponse;
           }
           
-          // if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && Array.isArray(event.attendees)) {
-          //   const hasPendingResponse = event.attendees.some((a: any) => 
-          //     a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
-          //   );
-          //   isPending = isPending || hasPendingResponse;
-          // }
+          if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && Array.isArray(event.attendees)) {
+            const hasPendingResponse = event.attendees.some((a: any) => 
+              a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
+            );
+            isPending = isPending || hasPendingResponse;
+          }
           
-          // if (!isPending) {
-          //   isPending = event.invite_status === 'pending' || 
-          //              (!event.invite_status && isInvite);
-          // }
+          if (!isPending) {
+            isPending = event.invite_status === 'pending' || 
+                       (!event.invite_status && isInvite);
+          }
           
           return isInvite && isPending;
         });
@@ -258,15 +268,6 @@ export default function EventsScreen() {
                 {filteredEvents.length} {filteredEvents.length === 1 ? 'event' : 'events'} found
               </Text>
             </View>
-            <TouchableOpacity 
-              style={styles.searchButton}
-              onPress={() => {}}
-              activeOpacity={0.7}
-            >
-              <BlurView intensity={80} tint="light" style={styles.blurButton}>
-                <Ionicons name="search-outline" size={22} color="#667EEA" />
-              </BlurView>
-            </TouchableOpacity>
           </Animated.View>
 
           {/* Filter Chips */}
@@ -600,19 +601,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.9)',
     marginTop: 4,
     fontWeight: '500',
-  },
-  searchButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    overflow: 'hidden',
-  },
-  blurButton: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 24,
   },
   // Filter Styles
   filtersContainer: {
