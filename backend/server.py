@@ -492,6 +492,53 @@ async def get_google_events(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Failed to fetch Google events")
 
 
+# ───────────────────────────────────────────────
+# Combined Events API
+@app.get("/api/events")
+async def api_get_events(calendar_sources: str = "", current_user: dict = Depends(get_current_user)):
+    try:
+        sources = [s.strip().lower() for s in calendar_sources.split(",") if s.strip()] if calendar_sources else []
+
+        # Local events
+        local_events = []
+        try:
+            user_id = str(current_user.get("_id")) if current_user and current_user.get("_id") else None
+            if user_id and (not sources or "local" in sources):
+                cursor = db.events.find({"user_id": {"$in": [user_id, ObjectId(user_id)]}})
+                async for ev in cursor:
+                    ev_copy = dict(ev)
+                    ev_copy["id"] = str(ev_copy.get("_id"))
+                    ev_copy["_id"] = str(ev_copy.get("_id"))
+                    if isinstance(ev_copy.get("user_id"), ObjectId):
+                        ev_copy["user_id"] = str(ev_copy["user_id"])
+                    local_events.append(ev_copy)
+        except Exception as e:
+            logging.warning("Local events fetch failed in /api/events: %s", str(e))
+
+        # Google events
+        google_events = []
+        if not sources or "google" in sources:
+            try:
+                google_resp = await get_google_events(current_user)
+                google_events = google_resp.get("events", [])
+            except Exception as e:
+                logging.warning("Google events fetch failed in /api/events: %s", str(e))
+
+        # Apple and Microsoft can be integrated here if needed
+        apple_events = []
+        microsoft_events = []
+
+        return {
+            "local_events": local_events,
+            "google_events": google_events,
+            "apple_events": apple_events,
+            "microsoft_events": microsoft_events,
+        }
+    except Exception as e:
+        logging.error("/api/events failed: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch events")
+
+
 class GoogleEventCreate(BaseModel):
     summary: str
     description: Optional[str] = None
@@ -584,6 +631,89 @@ async def delete_google_event(event_id: str, current_user: dict = Depends(get_cu
     except Exception as e:
         logging.error("Error deleting Google event: %s", str(e))
         raise HTTPException(status_code=500, detail="Failed to delete Google event")
+
+
+# ----------------------------------------------
+# POST /api/events (Local events)
+# ----------------------------------------------
+@app.post("/api/events")
+async def create_event_api(event: dict, current_user: dict = Depends(get_current_user)):
+    user_id = str(current_user["_id"]) if current_user and current_user.get("_id") else None
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    event = dict(event)
+    event["user_id"] = user_id
+
+    result = await db.events.insert_one(event)
+    event["id"] = str(result.inserted_id)
+    event["_id"] = str(result.inserted_id)
+    return {"message": "Event created successfully", "event": event}
+
+
+# ----------------------------------------------
+# POST /api/apple/add_event (alias to Apple Calendar service)
+# ----------------------------------------------
+@app.post("/api/apple/add_event")
+async def add_apple_event(event: dict, current_user: dict = Depends(get_current_user)):
+    try:
+        from apple_calendar_service import AppleCalendarService  # local import to avoid circular
+        from bson import ObjectId as _ObjectId
+
+        user = await db.users.find_one({"_id": _ObjectId(current_user["_id"])})
+        if not user or not user.get("apple_calendar_connected"):
+            raise HTTPException(status_code=400, detail="Apple Calendar not connected")
+
+        credentials = user.get("apple_calendar_credentials", {})
+        if not credentials:
+            raise HTTPException(status_code=400, detail="Apple Calendar credentials not found")
+
+        svc = AppleCalendarService(
+            apple_id=credentials["apple_id"],
+            app_specific_password=credentials["app_specific_password"],
+            user_id=current_user["_id"],
+        )
+
+        payload = {
+            "title": event.get("title"),
+            "description": event.get("description"),
+            "start_time": event.get("start_time"),
+            "end_time": event.get("end_time"),
+            "location": event.get("location"),
+        }
+
+        apple_event_id = await svc.create_event(event_data=payload, calendar_id=event.get("calendar_id"))
+        return {"status": "success", "event_id": apple_event_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("Error creating Apple event: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to create Apple event")
+
+
+# ----------------------------------------------
+# POST /api/microsoft/add_event (alias to Microsoft Calendar service)
+# ----------------------------------------------
+@app.post("/api/microsoft/add_event")
+async def add_microsoft_event(event: dict, current_user: dict = Depends(get_current_user)):
+    try:
+        from microsoft_calendar_service import MicrosoftCalendarService  # local import
+
+        if not current_user.get("microsoft_calendar_connected"):
+            raise HTTPException(status_code=400, detail="Microsoft Calendar not connected")
+
+        access_token = current_user.get("microsoft_access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Microsoft access token not found")
+
+        svc = MicrosoftCalendarService(access_token)
+        created = svc.create_event(event)
+        return {"status": "success", "event": created}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("Error creating Microsoft event: %s", str(e))
+        raise HTTPException(status_code=500, detail="Failed to create Microsoft event")
 
 
 class WatchRequest(BaseModel):
