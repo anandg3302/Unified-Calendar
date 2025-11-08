@@ -1,7 +1,11 @@
 import Constants from 'expo-constants';
 import axios from 'axios';
 
-const API_BASE = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'https://unified-calendar-zflg.onrender.com';
+const isDev = (typeof __DEV__ !== 'undefined' && __DEV__) || process.env.NODE_ENV !== 'production';
+const DEV_FALLBACK = 'http://localhost:8081';
+const ENV_BASE = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
+const PROD_FALLBACK = 'https://unified-calendar-zflg.onrender.com';
+const API_BASE = isDev ? (ENV_BASE || DEV_FALLBACK) : (ENV_BASE || PROD_FALLBACK);
 
 // Create axios instance with default config
 const api = axios.create({

@@ -77,7 +77,7 @@ export default function EventsScreen() {
     const now = new Date();
 
     const normalizedEvents = calendarEvents.map(event => {
-      let isInvite = event.is_invite === true || event.is_invite === 'true';
+      let isInvite = event.is_invite === true ;
       let inviteStatus = event.invite_status;
       
       if (event.calendar_source === 'google' && event.attendees) {
@@ -101,17 +101,7 @@ export default function EventsScreen() {
         }
       }
       
-      if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && event.attendees) {
-        const attendees = Array.isArray(event.attendees) ? event.attendees : [];
-        const pendingAttendee = attendees.find((a: any) => 
-          a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
-        );
-        
-        if (pendingAttendee && !isInvite) {
-          isInvite = true;
-          inviteStatus = 'pending';
-        }
-      }
+      
       
       if (isInvite && !inviteStatus) {
         inviteStatus = 'pending';
@@ -176,7 +166,7 @@ export default function EventsScreen() {
 
       case 'invites':
         filtered = normalizedEvents.filter(event => {
-          const isInvite = event.is_invite === true || event.is_invite === 'true';
+          const isInvite = event.is_invite === true ;
           let isPending = false;
           if (event.calendar_source === 'google' && Array.isArray(event.attendees)) {
             const hasPendingResponse = event.attendees.some((a: any) => 
@@ -185,17 +175,17 @@ export default function EventsScreen() {
             isPending = hasPendingResponse;
           }
           
-          if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && Array.isArray(event.attendees)) {
-            const hasPendingResponse = event.attendees.some((a: any) => 
-              a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
-            );
-            isPending = isPending || hasPendingResponse;
-          }
+          // if ((event.calendar_source === 'microsoft' || event.calendar_source === 'outlook') && Array.isArray(event.attendees)) {
+          //   const hasPendingResponse = event.attendees.some((a: any) => 
+          //     a.status?.response === 'notResponded' || a.status?.response === 'tentativelyAccepted'
+          //   );
+          //   isPending = isPending || hasPendingResponse;
+          // }
           
-          if (!isPending) {
-            isPending = event.invite_status === 'pending' || 
-                       (!event.invite_status && isInvite);
-          }
+          // if (!isPending) {
+          //   isPending = event.invite_status === 'pending' || 
+          //              (!event.invite_status && isInvite);
+          // }
           
           return isInvite && isPending;
         });

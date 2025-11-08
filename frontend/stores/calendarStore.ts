@@ -78,6 +78,10 @@ export interface CalendarEvent {
   is_invite: boolean;
   invite_status?: string;
   created_at: string;
+  attendees?: any[];
+  organizer?: any;
+  creator?: any;
+  
   // Apple-specific fields
   apple_event_id?: string;
   calendar_id?: string;
@@ -143,7 +147,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       console.log('🔑 fetchEvents token:', token ? 'present' : 'missing');
       const { selectedSources } = get();
       
-      const response = await apiClient.get(`/api/events`, {
+      const response = await apiClient.get(`/api/google/events`, {
         params: {
           calendar_sources: selectedSources.join(',')
         },
@@ -152,9 +156,19 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         }
       });
       
-      // Backend returns {local_events: [...], google_events: [...], apple_events: [...], microsoft_events: [...] }
+      // The backend may return either of these shapes:
+      // 1) { events: [...] }  (older combined list, usually Google events)
+      // 2) { local_events: [...], google_events: [...], apple_events: [...], microsoft_events: [...] }
       // We need to combine them into a single array
-      const { local_events = [], google_events = [], apple_events = [], microsoft_events = [] } = response.data;
+      const hasCombinedList = Array.isArray((response.data as any)?.events);
+      const shapeOneEvents: any[] = hasCombinedList ? (response.data as any).events : [];
+      const {
+        local_events = [],
+        google_events = [],
+        apple_events = [],
+        microsoft_events = []
+      } = hasCombinedList ? {} as any : (response.data as any);
+
       // Normalize Google events to unified shape if backend returned raw Google format
       const normalizedGoogle = (google_events as any[]).map((e: any) => {
         // Handle both our new /api/google/events normalized shape and raw Google items
@@ -175,7 +189,30 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           created_at: new Date().toISOString(),
         };
       });
-      const allEvents = [...local_events, ...normalizedGoogle, ...apple_events, ...microsoft_events];
+
+      // If we got shape (1), attempt to detect source from entries and normalize similarly
+      const normalizedFromCombined = (shapeOneEvents as any[]).map((e: any) => {
+        if (e && e.start_time) return e;
+        const startObj = e?.start || {};
+        const endObj = e?.end || {};
+        const startIso = startObj.dateTime || startObj.date || null;
+        const endIso = endObj.dateTime || endObj.date || null;
+        return {
+          id: e?.id || e?._id || Math.random().toString(36).slice(2),
+          title: e?.summary || e?.title || '(No title)',
+          description: e?.description || '',
+          start_time: startIso,
+          end_time: endIso,
+          calendar_source: e?.calendar_source || 'google',
+          location: e?.location || undefined,
+          is_invite: false,
+          created_at: new Date().toISOString(),
+        };
+      });
+
+      const allEvents = hasCombinedList
+        ? normalizedFromCombined
+        : [...local_events, ...normalizedGoogle, ...apple_events, ...microsoft_events];
       
       // Check if Apple Calendar is connected
       const appleConnected = apple_events.length > 0 || response.data.apple_connected === true;
@@ -256,7 +293,23 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
           headers: { Authorization: `Bearer ${token}` }
         });
         console.log('✅ Google create response:', res.status, res.data);
-      
+        // Optimistic UI update
+        try {
+          const newEventId = (res.data && (res.data.id || res.data.event?.id)) || Math.random().toString(36).slice(2);
+          const newEvent = {
+            id: newEventId,
+            title: eventData.title,
+            description: eventData.description || '',
+            start_time: eventData.start_time,
+            end_time: eventData.end_time,
+            calendar_source: 'google' as const,
+            location: eventData.location,
+            is_invite: false,
+            created_at: new Date().toISOString(),
+          };
+          set({ events: [newEvent as any, ...get().events] });
+        } catch {}
+
         await get().fetchEvents();
         return;
       }
@@ -269,9 +322,25 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       }
 
       // ✅ LOCAL events — save normally
-      await apiClient.post(`/api/events`, eventData, {
+      const localRes = await apiClient.post(`/api/events`, eventData, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      // Optimistic UI update for local
+      try {
+        const created = (localRes.data && (localRes.data.event || localRes.data)) || {};
+        const newEvent = {
+          id: created.id || Math.random().toString(36).slice(2),
+          title: eventData.title,
+          description: eventData.description || '',
+          start_time: eventData.start_time,
+          end_time: eventData.end_time,
+          calendar_source: (eventData.calendar_source || 'local') as any,
+          location: eventData.location,
+          is_invite: false,
+          created_at: new Date().toISOString(),
+        };
+        set({ events: [newEvent as any, ...get().events] });
+      } catch {}
 
       await get().fetchEvents();
     } catch (error) {
