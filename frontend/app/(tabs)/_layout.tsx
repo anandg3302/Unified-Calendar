@@ -42,15 +42,7 @@ export default function TabsLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="tasks"
-        options={{
-          title: 'Tasks',
-          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
-            <Ionicons name="checkmark-done" color={color} size={size} />
-          ),
-        }}
-      />
+      {/** Tasks tab removed */}
       <Tabs.Screen
         name="profile"
         options={{
