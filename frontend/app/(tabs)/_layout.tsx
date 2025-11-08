@@ -42,7 +42,13 @@ export default function TabsLayout() {
           ),
         }}
       />
-      {/** Tasks tab removed */}
+      {/** Explicitly hide Tasks route if the file still exists */}
+      <Tabs.Screen
+        name="tasks"
+        options={{
+          href: null,
+        }}
+      />
       <Tabs.Screen
         name="profile"
         options={{
