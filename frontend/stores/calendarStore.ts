@@ -73,7 +73,7 @@ export interface CalendarEvent {
   description?: string;
   start_time: string;
   end_time: string;
-  calendar_source: 'google' | 'apple' | 'local';
+  calendar_source: 'google' | 'apple' | 'local' | 'microsoft' | 'outlook';
   location?: string;
   is_invite: boolean;
   invite_status?: string;
@@ -130,7 +130,7 @@ interface CalendarState {
 export const useCalendarStore = create<CalendarState>((set, get) => ({
   events: [],
   calendarSources: [],
-  selectedSources: ['google', 'apple', 'microsoft'],
+  selectedSources: ['google', 'apple', 'microsoft', 'local'],
   viewMode: 'month',
   selectedDate: new Date(),
   isLoading: false,
@@ -147,7 +147,7 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
       console.log('🔑 fetchEvents token:', token ? 'present' : 'missing');
       const { selectedSources } = get();
       
-      const response = await apiClient.get(`/api/google/events`, {
+      const response = await apiClient.get(`/api/events`, {
         params: {
           calendar_sources: selectedSources.join(',')
         },
